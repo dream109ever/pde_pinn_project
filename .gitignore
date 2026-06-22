@@ -1,0 +1,26 @@
+# Python 缓存
+pycache/
+*.pyc
+*.pyo
+
+# 虚拟环境
+venv/
+env/
+
+# IDE 配置
+.vscode/
+.idea/
+
+# 临时文件
+*.log
+*.tmp
+*.spec
+*.drawio
+
+# 其他
+bag/
+build/
+dist/
+results/*
+!results/.gitkeep
+code.txt
