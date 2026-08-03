@@ -24,8 +24,10 @@ dist/
 results/*
 !results/.gitkeep
 code.txt
-docs/_build/
+docs/_build/*
+!docs/_build/html/
+docs/_build/html/*
+!docs/_build/html/index.html
 docs/_static/
 docs/make.bat
 docs/Makefile
-!docs/_build/html/index.html
