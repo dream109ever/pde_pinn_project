@@ -28,7 +28,7 @@ jobs:
       
       - name: 3. 安装文档构建依赖
         run: |
-          pip install sphinx sphinx_rtd_theme
+          pip install sphinx sphinx_rtd_theme torch numpy matplotlib sympy scipy tqdm PyQt5
           # 如果你的文档引用了 src 中的代码（如 autodoc），可能需要安装项目依赖
           # pip install -r requirements.txt  (如果有的话)
       
