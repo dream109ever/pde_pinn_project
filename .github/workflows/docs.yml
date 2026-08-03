@@ -1,0 +1,55 @@
+name: 部署 Sphinx 文档到 GitHub Pages
+
+on:
+  # ① 当代码推送到 main 分支时，自动触发部署
+  push:
+    branches: [main]
+  # ② 允许你在 GitHub 网页上手动点击按钮触发部署
+  workflow_dispatch:
+
+# 设置 GitHub 部署权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  # 打包任务
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 拉取你的代码
+        uses: actions/checkout@v4
+      
+      - name: 2. 安装 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: 3. 安装文档构建依赖
+        run: |
+          pip install sphinx sphinx_rtd_theme
+          # 如果你的文档引用了 src 中的代码（如 autodoc），可能需要安装项目依赖
+          # pip install -r requirements.txt  (如果有的话)
+      
+      - name: 4. 构建 HTML 文档
+        run: |
+          cd docs
+          make html
+      
+      - name: 5. 上传构建好的文件包
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+
+  # 部署任务（将包发布到网页）
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
