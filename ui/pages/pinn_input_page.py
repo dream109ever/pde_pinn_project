@@ -6,9 +6,8 @@ from PyQt5.QtWidgets import (
     QFormLayout, QDialogButtonBox, QGroupBox, QSizePolicy
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QThread
-from .base_widgets import *
-from .preview_label import PreviewLabel
-from src import *
+from .base_widgets import ClearableListWidget, InputPage, PreviewLabel
+# from src import *
 
 class PinnInputPage(InputPage):
     """第一步：输入方程与定解条件页"""

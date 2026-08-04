@@ -1,8 +1,10 @@
+import re
 import math
 from typing import Optional
-from PyQt5.QtWidgets import QWidget, QSpinBox, QVBoxLayout, QComboBox, QListWidget, QLineEdit, QMessageBox, QDialog, QFormLayout, QDialogButtonBox
-from PyQt5.QtCore import Qt, QPointF, QTimer
+from PyQt5.QtWidgets import QWidget, QSpinBox, QVBoxLayout, QComboBox, QListWidget, QLineEdit, QMessageBox, QDialog, QFormLayout, QDialogButtonBox, QTextEdit
+from PyQt5.QtCore import Qt, QPointF, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor, QLinearGradient, QRadialGradient, QPainterPath
+from src.function_factory import solve_pde
 from ui.theme_manager import ThemeManager
 
 class BasePage(QWidget):
@@ -632,3 +634,166 @@ class InputPage(BasePage):
             "domain": self.read_domain(),
             "condition": self.conditions.copy(),
         }
+
+class PreviewLabel(QTextEdit):
+    """基于 QTextEdit 的公式/文本显示控件，支持富文本、滚动、复制。"""
+    def __init__(self, parent=None, font_size=9, text_color='#FFFFFF'):
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setLineWrapMode(QTextEdit.NoWrap)
+        self.default_font_size = font_size
+        self.default_text_color = text_color
+        self._current_text = ""
+        self._current_html = ""
+        self._apply_style(text_color, font_size)
+    def _apply_style(self, color: str, size: int):
+        """应用样式到当前文本"""
+        self.setStyleSheet(f"""
+            QTextEdit {{
+                font-size: {size}pt;
+                color: {color};
+                background: transparent;
+                border: none;
+                padding: 2px 4px;
+            }}
+        """)
+    def set_color(self, color_hex: str):
+        """更新文字颜色"""
+        self.default_text_color = color_hex
+        self._apply_style(color_hex, self.default_font_size)
+        if self._current_html:
+            self.setHtml(self._current_html)
+        elif self._current_text:
+            self.setText(self._current_text)
+    def set_latex(self, latex_str: str):
+        """设置显示文本，实际不做 LaTeX 转换。"""
+        if latex_str is None:
+            latex_str = ""
+        self._current_text = latex_str
+        if latex_str.strip().startswith('<') and ('</' in latex_str or '<br' in latex_str.lower()):
+            self._current_html = latex_str
+            self.setHtml(latex_str)
+            return
+        text = latex_str
+        text = text.replace('&', '&amp;')
+        text = text.replace('<', '&lt;')
+        text = text.replace('>', '&gt;')
+        unicode_map = {
+            r'\alpha': 'α', r'\beta': 'β', r'\gamma': 'γ', r'\delta': 'δ',
+            r'\epsilon': 'ε', r'\zeta': 'ζ', r'\eta': 'η', r'\theta': 'θ',
+            r'\iota': 'ι', r'\kappa': 'κ', r'\lambda': 'λ', r'\mu': 'μ',
+            r'\nu': 'ν', r'\xi': 'ξ', r'\omicron': 'ο', r'\pi': 'π',
+            r'\rho': 'ρ', r'\sigma': 'σ', r'\tau': 'τ', r'\upsilon': 'υ',
+            r'\phi': 'φ', r'\chi': 'χ', r'\psi': 'ψ', r'\omega': 'ω',
+            r'\Gamma': 'Γ', r'\Delta': 'Δ', r'\Theta': 'Θ', r'\Lambda': 'Λ',
+            r'\Xi': 'Ξ', r'\Pi': 'Π', r'\Sigma': 'Σ', r'\Upsilon': 'Υ',
+            r'\Phi': 'Φ', r'\Psi': 'Ψ', r'\Omega': 'Ω',
+            r'\infty': '∞', r'\partial': '∂', r'\nabla': '∇',
+            r'\sum': 'Σ', r'\int': '∫', r'\oint': '∮',
+            r'\prod': 'Π', r'\sqrt': '√',
+            r'\rightarrow': '→', r'\leftarrow': '←',
+            r'\Rightarrow': '⇒', r'\Leftarrow': '⇐',
+            r'\leftrightarrow': '↔', r'\Leftrightarrow': '⇔',
+            r'\times': '×', r'\cdot': '·', r'\pm': '±', r'\mp': '∓',
+            r'\neq': '≠', r'\leq': '≤', r'\geq': '≥', r'\approx': '≈',
+            r'\equiv': '≡', r'\propto': '∝',
+            r'\forall': '∀', r'\exists': '∃', r'\emptyset': '∅',
+            r'\in': '∈', r'\notin': '∉', r'\subset': '⊂', r'\supset': '⊃',
+            r'\cup': '∪', r'\cap': '∩',
+            r'\prime': '′', r'\doubleprime': '″',
+            r'\text': '', r'\mathrm': '', r'\mathbf': '',
+            r'\left': '', r'\right': '',
+        }
+        for cmd, uni in unicode_map.items():
+            text = text.replace(cmd, uni)
+        def convert_frac(match):
+            num = match.group(1).strip('{}')
+            den = match.group(2).strip('{}')
+            return f"({num})/({den})"
+        text = re.sub(r'\\frac\{([^}]*)\}\{([^}]*)\}', convert_frac, text)
+        text = re.sub(r'(\w+?)_\{([^}]*)\}', r'\1<sub>\2</sub>', text)
+        text = re.sub(r'(\w+?)_(\w+)', r'\1<sub>\2</sub>', text)
+        text = re.sub(r'(\w+?)\^\{([^}]*)\}', r'\1<sup>\2</sup>', text)
+        text = re.sub(r'(\w+?)\^(\w+)', r'\1<sup>\2</sup>', text)
+        def clean_braces(match):
+            content = match.group(1)
+            if '<' in content and '>' in content:
+                return f"{{{content}}}"
+            return content
+        text = re.sub(r'\{([^{}]*)\}', clean_braces, text)
+        func_names = ['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'sinh', 'cosh', 'tanh', 'coth', 'arcsin', 'arccos', 'arctan', 
+                      'log', 'ln', 'lg', 'exp', 'sqrt', 'max', 'min', 'sup', 'inf', 'lim']
+        text = re.sub(r'\\sum_\{([^}]*)\}\^\{([^}]*)\}', r'Σ<sub>\1</sub><sup>\2</sup>', text)
+        text = re.sub(r'\\int_\{([^}]*)\}\^\{([^}]*)\}', r'∫<sub>\1</sub><sup>\2</sup>', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        html = f'<span style="font-family: \'Times New Roman\', \'Microsoft YaHei\', sans-serif;">{text}</span>'
+        self._current_html = html
+        self.setHtml(html)
+
+class SolverThread(QThread):
+    """
+    基于 function_factory 计算引擎的后台求解线程，
+    可将前端界面传入的 problem_config 转换为标准参数，并直接调用 solve_pde 顶层接口求解。
+    """
+    log_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(dict)
+    error_signal = pyqtSignal(str)
+    def __init__(self, problem_config: dict):
+        super().__init__()
+        self.config = problem_config
+    def run(self):
+        try:
+            self.log_signal.emit("正在解析方程配置，准备接入 function_factory 核心引擎...")
+            dimension = int(self.config.get('dimension', 1))
+            has_t = bool(self.config.get('has_t', False))
+            order = int(self.config.get('order', 2))
+            coeffs = self.config.get('coeffs')
+            if coeffs is None:
+                coeffs = [1, 0, 1] if (dimension == 1 and not has_t) else {"u_xx": 1.0}
+            source_term = str(self.config.get('source_term', '0'))
+            condition = self.config.get('conditions', self.config.get('condition', []))
+            domain = self.config.get('domain')
+            if not domain:
+                domain = {"x": [0.0, 1.0]}
+                if dimension == 2:
+                    domain["y"] = [0.0, 1.0]
+                if has_t:
+                    domain["t"] = [0.0, 1.0]
+            self.log_signal.emit(f"参数解析完成: 维度={dimension}D | 含时={has_t} | 阶数={order}")
+            self.log_signal.emit("正在调用 solve_pde 执行精确解/数值基准解计算...")
+            res_dict = solve_pde(
+                dimension=dimension,
+                order=order,
+                has_t=has_t,
+                coeffs=coeffs,
+                source_term=source_term,
+                domain=domain,
+                condition=condition
+            )
+            exact_func = res_dict.get("exact_solution")
+            exact_expr = res_dict.get("exact_expression")
+            loss_funcs = res_dict.get("loss_functions", [])
+            self.log_signal.emit("解结构计算完成，正在生成前端响应...")
+            if exact_func is None and exact_expr is None:
+                self.error_signal.emit("引擎未能获得精确解或数值基准解，请检查定解条件是否完整。")
+                return
+            var_symbols = ['x']
+            if dimension == 2:
+                var_symbols.append('y')
+            if has_t:
+                var_symbols.append('t')
+            result_data = {
+                'exact_expr': exact_expr if exact_expr else "数值/级数近似基准解",
+                'exact_solution': exact_func,    # 可直接调用的 Python/NumPy 函数
+                'loss_functions': loss_funcs,    # [pde_loss, bc_loss, total_loss] 供 PINN 训练使用
+                'var_symbols': var_symbols,
+                'dimension': dimension,
+                'has_t': has_t,
+                'domain': domain,
+                'config': self.config
+            }
+            self.finished_signal.emit(result_data)
+        except Exception as e:
+            self.error_signal.emit(f"核心引擎求解出错: {str(e)}")

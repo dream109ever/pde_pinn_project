@@ -1,14 +1,10 @@
-import sympy as sp
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QLabel, QPushButton,
-    QListWidget, QTextEdit, QLineEdit, QMessageBox, QSpinBox, QDialog,
-    QFormLayout, QDialogButtonBox, QGroupBox, QScrollArea
+    QVBoxLayout, QHBoxLayout, QComboBox, QLabel, QPushButton,
+    QTextEdit, QLineEdit, QMessageBox, QSpinBox, QGroupBox
 )
 from PyQt5.QtCore import Qt
+from .base_widgets import ClearableListWidget, InputPage, PreviewLabel, SolverThread
 from .plot_window_page import PlotWindow
-from .solver_thread import SolverThread
-from .base_widgets import *
-from .preview_label import PreviewLabel
 
 class SolverPage(InputPage):
     def __init__(self, back_to_menu_cb, parent=None):
@@ -104,7 +100,6 @@ class SolverPage(InputPage):
         bottom_layout.addWidget(self.plot_btn)
         bottom_layout.addWidget(back_btn)
         main_layout.addLayout(bottom_layout)
-    # 转换前端参数并向 SolverThread 投递
     def start_solving(self):
         if not self.terms:
             QMessageBox.warning(self, "警告", "请先添加方程系数项！")
@@ -115,7 +110,6 @@ class SolverPage(InputPage):
         has_t = "含时" in p_type
         # 1. coeffs 格式转换
         if dimension == 1 and not has_t:
-            # 1D 稳态引擎要求 list：[c0, c1, ..., c_order]
             coeffs_list = [0.0] * (order + 1)
             for d in range(order + 1):
                 key = "u" if d == 0 else "u" + "'" * d
@@ -123,10 +117,9 @@ class SolverPage(InputPage):
                     try:
                         coeffs_list[d] = float(self.terms[key])
                     except ValueError:
-                        coeffs_list[d] = self.terms[key]  # 支持表达式字符串
+                        coeffs_list[d] = self.terms[key]
             coeffs_param = coeffs_list
         else:
-            # PDE 分支引擎要求 dict：{"u_xx": 1.0, ...}
             coeffs_dict = {}
             for k, v in self.terms.items():
                 try:
@@ -134,7 +127,6 @@ class SolverPage(InputPage):
                 except ValueError:
                     coeffs_dict[k] = v
             coeffs_param = coeffs_dict
-
         # 2. 构建与 function_factory 完全相符的配置
         problem_config = {
             "dimension": dimension,
@@ -149,34 +141,28 @@ class SolverPage(InputPage):
                 "t": [0.0, 1.0] if has_t else None
             }
         }
-
-        # 界面UI锁定
         self.solve_btn.setEnabled(False)
         self.plot_btn.setEnabled(False)
         self.log_text.clear()
         self.result_latex.set_latex(r"\text{正在调用核心引擎计算中...}")
-
         # 3. 启动后台后台线程求解
         self.solver_thread = SolverThread(problem_config)
         self.solver_thread.log_signal.connect(self.log_text.append)
         self.solver_thread.finished_signal.connect(self.on_solve_finished)
         self.solver_thread.error_signal.connect(self.on_solve_error)
         self.solver_thread.start()
-
     def on_solve_finished(self, result_data):
         self.solve_btn.setEnabled(True)
         self.current_result = result_data
         self.result_latex.set_latex(str(result_data['exact_expr']))
         self.plot_btn.setEnabled(True)
         QMessageBox.information(self, "成功", "方程求解成功！")
-
     def on_solve_error(self, err_msg):
         self.solve_btn.setEnabled(True)
         self.plot_btn.setEnabled(False)
         self.result_latex.set_latex(r"\text{无精确解或无法求解}")
         self.log_text.append(f"<font color='red'>{err_msg}</font>")
         QMessageBox.warning(self, "求解失败", err_msg)
-
     def open_plot_window(self):
         if self.current_result:
             plot_dlg = PlotWindow(self.current_result, self)

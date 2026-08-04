@@ -1,8 +1,8 @@
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QApplication, QToolButton
-from ui.pages.base_widgets import BasePage
 from ui.theme_manager import ThemeManager
+from .base_widgets import BasePage
 from .settings_dialog_page import SettingsDialog
 
 class ModeSelectionPage(BasePage):
