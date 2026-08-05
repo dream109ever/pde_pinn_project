@@ -1,16 +1,14 @@
 # ui/pages/pinn_plot_page.py
-import sys
 import torch
-import numpy as np
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
     QMessageBox, QGroupBox, QFormLayout, QSplitter, QComboBox, QSpinBox,
     QDoubleSpinBox, QCheckBox, QLineEdit, QStackedWidget, QFrame
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from .base_widgets import BasePage, PreviewLabel, SolverThread
-
 import matplotlib as mpl
+from src import *
+from .base_widgets import BasePage, PreviewLabel, SolverThread
 mpl.use('Agg')
 mpl.rcParams['font.size'] = 11
 mpl.rcParams['axes.titlesize'] = 13
@@ -19,12 +17,10 @@ mpl.rcParams['xtick.labelsize'] = 10
 mpl.rcParams['ytick.labelsize'] = 10
 mpl.rcParams['legend.fontsize'] = 10
 
-# 导入核心算法库
-from src import *
-
 class PINNTrainerThread(QThread):
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int, float, object, object)
+    loss_signal = pyqtSignal(int, float, float, float)
     finished_signal = pyqtSignal()
 
     def __init__(self, problem_config: dict, total_epochs: int = 1500, chunk_epochs: int = 50):
@@ -146,6 +142,15 @@ class PINNTrainerThread(QThread):
             exact_func = config.get("_exact_func", None)
             # 6. 分块训练
             current_epoch = 0
+            loss_history = {'total': [], 'pde': [], 'bc': []}
+            # 训练回调：每5步发送一次损失数据（高频）
+            def loss_callback(epoch, total_loss, pde_loss, bc_loss):
+                loss_history['total'].append(total_loss)
+                loss_history['pde'].append(pde_loss)
+                loss_history['bc'].append(bc_loss)
+                # 每5步发送一次（高频更新）
+                if epoch % 5 == 0 or epoch == self.total_epochs - 1:
+                    self.loss_signal.emit(epoch, total_loss, pde_loss, bc_loss)
             while current_epoch < self.total_epochs and self._is_running:
                 step = min(self.chunk_epochs, self.total_epochs - current_epoch)
                 history = trainer.train(
@@ -154,7 +159,8 @@ class PINNTrainerThread(QThread):
                     n_interior=1000,
                     n_boundary_per_side=50,
                     n_initial=200,
-                    verbose=False
+                    verbose=False,
+                    callback=loss_callback
                 )
                 current_epoch += step
                 latest_loss = history['total_loss'][-1]
@@ -237,20 +243,34 @@ class PinnPlotPage(BasePage):
         left_layout.addWidget(self.result_latex)
         left_layout.addStretch()
         splitter.addWidget(left_widget)
-        # ---------- 右侧：QStackedWidget 4个绘图控件 ----------
+        # ---------- 右侧：上下布局（损失曲线 + 绘图控件） ----------
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
+        # 右侧内部垂直分割器（损失曲线 40% | 绘图控件 60%）
+        right_splitter = QSplitter(Qt.Vertical)
+        # ---- 上半部分：损失曲线 ----
+        loss_group = QGroupBox("损失函数曲线 (高频更新)")
+        loss_layout = QVBoxLayout(loss_group)
+        self.loss_plot_widget = LossPlotWidget()
+        loss_layout.addWidget(self.loss_plot_widget)
+        right_splitter.addWidget(loss_group)
+        # ---- 下半部分：绘图控件 ----
+        plot_group = QGroupBox("预测解与精确解对比 (低频更新)")
+        plot_layout = QVBoxLayout(plot_group)
         self.stacked_widget = QStackedWidget()
-        self.widget_1d_steady = Steady1DPlotWidget(orientation='vertical')
-        self.widget_1d_transient = Transient1DPlotWidget(orientation='vertical')
-        self.widget_2d_steady = Steady2DPlotWidget(orientation='vertical')
-        self.widget_2d_transient = Transient2DPlotWidget(orientation='vertical')
+        self.widget_1d_steady = Steady1DPlotWidget(mode='overlay')
+        self.widget_1d_transient = Transient1DPlotWidget(mode='overlay')
+        self.widget_2d_steady = Steady2DPlotWidget(mode='overlay')
+        self.widget_2d_transient = Transient2DPlotWidget(mode='overlay')
         self.stacked_widget.addWidget(self.widget_1d_steady)      # index 0
         self.stacked_widget.addWidget(self.widget_1d_transient)   # index 1
         self.stacked_widget.addWidget(self.widget_2d_steady)      # index 2
         self.stacked_widget.addWidget(self.widget_2d_transient)   # index 3
-        right_layout.addWidget(self.stacked_widget)
+        plot_layout.addWidget(self.stacked_widget)
+        right_splitter.addWidget(plot_group)
+        right_splitter.setSizes([300, 450])
+        right_layout.addWidget(right_splitter)
         splitter.addWidget(right_widget)
         splitter.setSizes([400, 800])
         main_layout.addWidget(splitter)
@@ -292,6 +312,7 @@ class PinnPlotPage(BasePage):
                     self.log_text.append("已自动填充网络结构。")
             except Exception:
                 pass
+        self.loss_plot_widget.update_plot({})
 
     # ========== 训练控制 ==========
     def start_solving(self):
@@ -310,6 +331,7 @@ class PinnPlotPage(BasePage):
         self.stop_btn.setEnabled(True)
         self.log_text.clear()
         self.log_text.append("启动训练线程...")
+        self.loss_plot_widget.update_plot({})
         self.solver_thread = SolverThread(self.problem_config)
         self.solver_thread.log_signal.connect(self.log_text.append)
         self.solver_thread.finished_signal.connect(self.on_solve_finished)
@@ -335,6 +357,7 @@ class PinnPlotPage(BasePage):
         )
         self.trainer_thread.log_signal.connect(self.log_text.append)
         self.trainer_thread.progress_signal.connect(self.update_plot_with_model)
+        self.trainer_thread.loss_signal.connect(self.update_loss_plot)
         self.trainer_thread.finished_signal.connect(self.on_training_finished)
         self.trainer_thread.start()
     def on_solve_error(self, err_msg):
@@ -356,8 +379,23 @@ class PinnPlotPage(BasePage):
             self.trainer_thread.stop()
         self.stop_btn.setEnabled(False)
         self.log_text.append("⏹ 流程已中断。")
-
-    # ========== 实时更新绘图 ==========
+    # ========== 更新损失曲线 ==========
+    def update_loss_plot(self, epoch: int, total_loss: float, pde_loss: float, bc_loss: float):
+        """每5步更新一次损失曲线（高频）"""
+        # 获取当前历史数据
+        if not hasattr(self, '_loss_history'):
+            self._loss_history = {'total': [], 'pde': [], 'bc': []}
+        self._loss_history['total'].append(total_loss)
+        self._loss_history['pde'].append(pde_loss)
+        self._loss_history['bc'].append(bc_loss)
+        # 只保留最近2000个点防止内存溢出
+        max_points = 2000
+        if len(self._loss_history['total']) > max_points:
+            self._loss_history['total'] = self._loss_history['total'][-max_points:]
+            self._loss_history['pde'] = self._loss_history['pde'][-max_points:]
+            self._loss_history['bc'] = self._loss_history['bc'][-max_points:]
+        # 更新损失曲线
+        self.loss_plot_widget.update_plot(self._loss_history)
     def update_plot_with_model(self, epoch: int, loss_val: float, model: torch.nn.Module, exact_func):
         """每 chunk 更新一次当前显示的绘图控件"""
         if not self.problem_config:

@@ -637,32 +637,35 @@ class InputPage(BasePage):
 
 class PreviewLabel(QTextEdit):
     """基于 QTextEdit 的公式/文本显示控件，支持富文本、滚动、复制。"""
-    def __init__(self, parent=None, font_size=9, text_color='#FFFFFF'):
+    def __init__(self, parent=None, font_size=9):
         super().__init__(parent)
         self.setReadOnly(True)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setLineWrapMode(QTextEdit.NoWrap)
         self.default_font_size = font_size
-        self.default_text_color = text_color
         self._current_text = ""
         self._current_html = ""
-        self._apply_style(text_color, font_size)
-    def _apply_style(self, color: str, size: int):
+        ThemeManager.instance().theme_changed.connect(lambda _: self._apply_style(font_size))
+        QTimer.singleShot(0, lambda: self._apply_style(font_size))
+    def _apply_style(self, size: int):
         """应用样式到当前文本"""
+        theme = ThemeManager.instance().current
+        input_bg = "rgba(15, 23, 42, 0.55)" if theme.is_dark else "rgba(255, 255, 255, 0.85)"
         self.setStyleSheet(f"""
             QTextEdit {{
-                font-size: {size}pt;
-                color: {color};
-                background: transparent;
-                border: none;
-                padding: 2px 4px;
+                font-size: {size}pt;        
+                background-color: {input_bg};
+                color: {theme.text_primary};
+                border: 1px solid {theme.btn_border};
+                border-radius: 6px;
+                padding: 4px 8px;
             }}
         """)
     def set_color(self, color_hex: str):
         """更新文字颜色"""
         self.default_text_color = color_hex
-        self._apply_style(color_hex, self.default_font_size)
+        self._apply_style(self.default_font_size)
         if self._current_html:
             self.setHtml(self._current_html)
         elif self._current_text:
@@ -788,6 +791,7 @@ class SolverThread(QThread):
                 'exact_expr': exact_expr if exact_expr else "数值/级数近似基准解",
                 'exact_solution': exact_func,    # 可直接调用的 Python/NumPy 函数
                 'loss_functions': loss_funcs,    # [pde_loss, bc_loss, total_loss] 供 PINN 训练使用
+                'raw_rhs': exact_expr,
                 'var_symbols': var_symbols,
                 'dimension': dimension,
                 'has_t': has_t,

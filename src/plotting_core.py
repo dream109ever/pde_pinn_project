@@ -16,10 +16,10 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from typing import Optional, Dict, List, Tuple, Callable, Any, Union
+from typing import Optional, Dict, List, Tuple, Callable
 
 # ============================================================================
-# 辅助工具
+# 0. 辅助工具函数
 # ============================================================================
 def _safe_call_exact_func(exact_func, pts):
     """
@@ -87,7 +87,204 @@ def _get_label_dim(has_t: bool, dim: int) -> str:
         return 'x, y, t'
     return ''
 # ============================================================================
-# 损失曲线
+# 1. 数据准备函数
+# ============================================================================
+def prepare_1d_data(
+    model: Optional[torch.nn.Module],
+    x_range: Tuple[float, float],
+    n_points: int = 200,
+    exact_func: Optional[Callable] = None,
+) -> Dict:
+    """准备一维稳态问题的绘图数据。"""
+    x_min, x_max = x_range
+    x_test = torch.linspace(x_min, x_max, n_points).reshape(-1, 1)
+    x_np = x_test.numpy().flatten()
+    u_pred = None
+    if model is not None:
+        model.eval()
+        with torch.no_grad():
+            u_pred = model(x_test).numpy().flatten()    
+    result = {'x': x_np, 'u_pred': u_pred}
+    u_true = None
+    if exact_func is not None:
+        u_true = _safe_call_exact_func(exact_func, x_test)
+        if u_true is not None:
+            u_true = np.asarray(u_true).flatten()
+            if len(u_true) != len(x_np):
+                if len(u_true) == 1:
+                    u_true = np.full_like(x_np, u_true[0])
+                else:
+                    u_true = np.array([_safe_call_exact_func(exact_func, x_test[i:i+1]) for i in range(len(x_np))]).flatten()
+    result['u_true'] = u_true
+    if u_pred is not None and u_true is not None:
+        result['error'] = np.abs(u_pred - u_true)
+    else:
+        result['error'] = None
+    return result
+def prepare_2d_data(
+    model: Optional[torch.nn.Module],
+    x_range: Tuple[float, float],
+    y_range: Tuple[float, float],
+    n_points: int = 80,
+    exact_func: Optional[Callable] = None,
+) -> Dict:
+    """准备二维稳态问题的绘图数据。"""
+    x_min, x_max = x_range
+    y_min, y_max = y_range
+    x_lin = torch.linspace(x_min, x_max, n_points)
+    y_lin = torch.linspace(y_min, y_max, n_points)
+    X, Y = torch.meshgrid(x_lin, y_lin, indexing='ij')
+    pts = torch.cat([X.flatten().reshape(-1, 1), Y.flatten().reshape(-1, 1)], dim=1)
+    # 1. PINN 网络预测
+    Z_pred = None
+    if model is not None:
+        model.eval()
+        with torch.no_grad():
+            Z_pred = model(pts).numpy().reshape(n_points, n_points)  
+    result = {
+        'X': X.numpy(),
+        'Y': Y.numpy(),
+        'Z_pred': Z_pred,
+    }
+    # 2. 精确解评估
+    Z_true = None
+    if exact_func is not None:
+        Z_true = _safe_call_exact_func(exact_func, pts)
+        if Z_true is not None:
+            Z_true = Z_true.reshape(n_points, n_points)    
+    result['Z_true'] = Z_true
+    # 3. 误差计算
+    if Z_pred is not None and Z_true is not None:
+        result['error'] = np.abs(Z_pred - Z_true)
+    else:
+        result['error'] = None
+    return result
+def prepare_transient_1d_data(
+    model: Optional[torch.nn.Module],
+    x_range: Tuple[float, float],
+    t_val: float,
+    n_points: int = 200,
+    exact_func: Optional[Callable] = None,
+) -> Dict:
+    """
+    准备一维含时问题的绘图数据。
+    
+    返回:
+        'x': np.ndarray,
+        'u_pred': np.ndarray,
+        'u_true': np.ndarray or None,
+        'error': np.ndarray or None,
+    """
+    x_min, x_max = x_range
+    x_test = torch.linspace(x_min, x_max, n_points).reshape(-1, 1)
+    t_test = torch.full_like(x_test, t_val)
+    pts = torch.cat([x_test, t_test], dim=1)  # 拼接为 (N, 2) 的输入 tensor [x, t]
+    x_np = x_test.numpy().flatten()
+    # 1. PINN 网络预测
+    u_pred = None
+    if model is not None:
+        model.eval()
+        with torch.no_grad():
+            u_pred = model(pts).numpy().flatten()     
+    result = {
+        'x': x_np,
+        't_val': t_val,
+        'u_pred': u_pred,
+    }
+    # 2. 精确/解析解评估
+    u_true = None
+    if exact_func is not None:
+        u_true = _safe_call_exact_func(exact_func, pts)
+        if u_true is not None:
+            u_true = u_true.flatten()      
+    result['u_true'] = u_true
+    # 3. 误差计算（两者皆存在时才计算）
+    if u_pred is not None and u_true is not None:
+        result['error'] = np.abs(u_pred - u_true)
+    else:
+        result['error'] = None
+    return result
+def prepare_transient_2d_data(
+    model: Optional[torch.nn.Module],
+    x_range: Tuple[float, float],
+    y_range: Tuple[float, float],
+    t_val: float,
+    n_points: int = 80,
+    exact_func: Optional[Callable] = None,
+) -> Dict:
+    """
+    准备二维含时问题的绘图数据。
+    
+    返回:
+        'X': np.ndarray,    # 网格 X
+        'Y': np.ndarray,    # 网格 Y
+        'Z_pred': np.ndarray,
+        'Z_true': np.ndarray or None,
+        'error': np.ndarray or None,
+    """
+    x_min, x_max = x_range
+    y_min, y_max = y_range
+    x_lin = torch.linspace(x_min, x_max, n_points)
+    y_lin = torch.linspace(y_min, y_max, n_points)
+    X, Y = torch.meshgrid(x_lin, y_lin, indexing='ij')
+    t_tensor = torch.full((n_points * n_points, 1), t_val)
+    pts = torch.cat([X.flatten().reshape(-1, 1), Y.flatten().reshape(-1, 1), t_tensor], dim=1) # (N*N, 3) [x, y, t]
+    # 1. PINN 网络预测
+    Z_pred = None
+    if model is not None:
+        model.eval()
+        with torch.no_grad():
+            Z_pred = model(pts).numpy().reshape(n_points, n_points)     
+    result = {
+        'X': X.numpy(),
+        'Y': Y.numpy(),
+        't_val': t_val,
+        'Z_pred': Z_pred,
+    }
+    # 2. 精确/解析解评估
+    Z_true = None
+    if exact_func is not None:
+        Z_true = _safe_call_exact_func(exact_func, pts)
+        if Z_true is not None:
+            Z_true = Z_true.reshape(n_points, n_points)      
+    result['Z_true'] = Z_true
+    # 3. 误差计算
+    if Z_pred is not None and Z_true is not None:
+        result['error'] = np.abs(Z_pred - Z_true)
+    else:
+        result['error'] = None
+    return result
+def prepare_1d_time_slice_data(
+    model: torch.nn.Module,
+    x_val: float,
+    t_range: Tuple[float, float],
+    n_points: int = 200,
+    exact_func: Optional[Callable] = None,
+) -> Dict:
+    """准备固定 x 处 u 随时间变化的数据"""
+    t_min, t_max = t_range
+    t_test = torch.linspace(t_min, t_max, n_points).reshape(-1, 1)
+    x_vals = torch.full((n_points, 1), x_val)
+    xt = torch.cat([x_vals, t_test], dim=1)
+    model.eval()
+    with torch.no_grad():
+        u_pred = model(xt).numpy().flatten()
+    t_np = t_test.numpy().flatten()
+    result = {'t': t_np, 'u_pred': u_pred}
+    if exact_func is not None:
+        u_true = _safe_call_exact_func(exact_func, xt)
+        if u_true is not None:
+            result['u_true'] = u_true
+            result['error'] = np.abs(u_pred - u_true)
+        else:
+            result['u_true'] = None
+            result['error'] = None
+    else:
+        result['u_true'] = None
+        result['error'] = None
+    return result
+# ============================================================================
+# 2. 绘图函数
 # ============================================================================
 def draw_loss_curve(
     ax: plt.Axes,
@@ -136,9 +333,6 @@ def draw_loss_curve(
     ax.legend()
     ax.grid(True, alpha=0.3)
     return ax
-# ============================================================================
-# 一维问题
-# ============================================================================
 def draw_1d_solution(
     ax: plt.Axes,
     x: np.ndarray,
@@ -234,7 +428,7 @@ def draw_1d_transient_slice(
 def draw_1d_time_slice(
     ax: plt.Axes,
     t: np.ndarray,
-    u_pred: np.ndarray,
+    u_pred: Optional[np.ndarray],
     x_val: float,
     u_true: Optional[np.ndarray] = None,
     title: str = "Time Evolution",
@@ -242,13 +436,14 @@ def draw_1d_time_slice(
     ylabel: str = "u(x=const, t)",
     show_error: bool = True,
 ):
-    """
-    在给定的 Axes 上绘制固定 x 位置处 u 随时间变化的曲线。
-    """
-    ax.plot(t, u_pred, 'b-', label=f'PINN Prediction (x={x_val:.2f})', linewidth=2)
+    """在给定的 Axes 上绘制固定 x 位置处 u 随时间变化的曲线。"""
+    if u_pred is not None:
+        ax.plot(t, u_pred, 'b-', label=f'PINN (x={x_val:.2f})', linewidth=2)
     if u_true is not None:
-        ax.plot(t, u_true, 'r--', label='Exact Solution', linewidth=2)
-        if show_error:
+        style = 'r--' if u_pred is not None else 'g-'
+        label = 'Exact' if u_pred is not None else 'Analytical Solution'
+        ax.plot(t, u_true, style, label=label, linewidth=2)
+        if u_pred is not None and show_error:
             error = np.abs(u_pred - u_true)
             ax.text(0.05, 0.95, f"Max error: {error.max():.2e}\nMean error: {error.mean():.2e}",
                     transform=ax.transAxes, verticalalignment='top',
@@ -292,9 +487,6 @@ def draw_1d_multiple_models(
     ax.legend()
     ax.grid(True, alpha=0.3)
     return ax
-# ============================================================================
-# 二维问题
-# ============================================================================
 def draw_2d_contour(
     ax: plt.Axes,
     X: np.ndarray,
@@ -398,9 +590,6 @@ def draw_2d_with_error(
                   bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     draw_2d_error(ax_error, X, Y, error, levels, cmap='hot', title="Absolute Error")
     return ax_pred, ax_error
-# ============================================================================
-# 三维问题（曲面图）
-# ============================================================================
 def draw_3d_surface(
     ax: Axes3D,
     X: np.ndarray,
@@ -463,9 +652,6 @@ def draw_3d_compare(
     draw_3d_surface(ax_pred, X, Y, Z_pred, cmap_pred, f"{title} - PINN")
     draw_3d_surface(ax_true, X, Y, Z_true, cmap_true, f"{title} - Exact")
     return ax_pred, ax_true
-# ============================================================================
-# 含时问题的多切片
-# ============================================================================
 def draw_1d_transient_3d(
     ax: Axes3D,
     X: np.ndarray,   # x 网格 (nx, nt)
@@ -493,7 +679,7 @@ def draw_2d_transient_slices(
     axes: List[plt.Axes],
     X: np.ndarray,
     Y: np.ndarray,
-    slices: List[Dict],
+    slices: List[np.ndarray],
     t_values: List[float],
     cmap: str = 'viridis',
     title: str = "2D Transient Slices",
@@ -512,207 +698,18 @@ def draw_2d_transient_slices(
     if len(axes) != len(t_values):
         raise ValueError("axes 和 t_values 长度必须相同")
     for ax, Z, t_val in zip(axes, slices, t_values):
-        cp = ax.contourf(X, Y, Z, levels=30, cmap=cmap)
-        ax.set_title(f't={t_val:.2f}')
+        if Z is not None:
+            cp = ax.contourf(X, Y, Z, levels=30, cmap=cmap)
+            ax.set_title(f't={t_val:.2f}')
+        else:
+            ax.text(0.5, 0.5, "No data", ha='center', va='center')
+            ax.set_title(f't={t_val:.2f} (missing)')
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_aspect('equal', adjustable='box')
     return axes
 # ============================================================================
-# 含时交互式绘图（数据准备）
-# ============================================================================
-def prepare_transient_1d_data(
-    model: Optional[torch.nn.Module],
-    x_range: Tuple[float, float],
-    t_val: float,
-    n_points: int = 200,
-    exact_func: Optional[Callable] = None,
-) -> Dict:
-    """
-    准备一维含时问题的绘图数据。
-    
-    返回:
-        'x': np.ndarray,
-        'u_pred': np.ndarray,
-        'u_true': np.ndarray or None,
-        'error': np.ndarray or None,
-    """
-    x_min, x_max = x_range
-    x_test = torch.linspace(x_min, x_max, n_points).reshape(-1, 1)
-    t_test = torch.full_like(x_test, t_val)
-    pts = torch.cat([x_test, t_test], dim=1)  # 拼接为 (N, 2) 的输入 tensor [x, t]
-    x_np = x_test.numpy().flatten()
-    # 1. PINN 网络预测
-    u_pred = None
-    if model is not None:
-        model.eval()
-        with torch.no_grad():
-            u_pred = model(pts).numpy().flatten()     
-    result = {
-        'x': x_np,
-        't_val': t_val,
-        'u_pred': u_pred,
-    }
-    # 2. 精确/解析解评估
-    u_true = None
-    if exact_func is not None:
-        u_true = _safe_call_exact_func(exact_func, pts)
-        if u_true is not None:
-            u_true = u_true.flatten()      
-    result['u_true'] = u_true
-    # 3. 误差计算（两者皆存在时才计算）
-    if u_pred is not None and u_true is not None:
-        result['error'] = np.abs(u_pred - u_true)
-    else:
-        result['error'] = None
-    return result
-def prepare_1d_time_slice_data(
-    model: torch.nn.Module,
-    x_val: float,
-    t_range: Tuple[float, float],
-    n_points: int = 200,
-    exact_func: Optional[Callable] = None,
-) -> Dict:
-    """准备固定 x 处 u 随时间变化的数据"""
-    t_min, t_max = t_range
-    t_test = torch.linspace(t_min, t_max, n_points).reshape(-1, 1)
-    x_vals = torch.full((n_points, 1), x_val)
-    xt = torch.cat([x_vals, t_test], dim=1)
-    model.eval()
-    with torch.no_grad():
-        u_pred = model(xt).numpy().flatten()
-    t_np = t_test.numpy().flatten()
-    result = {'t': t_np, 'u_pred': u_pred}
-    if exact_func is not None:
-        u_true = _safe_call_exact_func(exact_func, xt)
-        if u_true is not None:
-            result['u_true'] = u_true
-            result['error'] = np.abs(u_pred - u_true)
-        else:
-            result['u_true'] = None
-            result['error'] = None
-    else:
-        result['u_true'] = None
-        result['error'] = None
-    return result
-def prepare_transient_2d_data(
-    model: Optional[torch.nn.Module],
-    x_range: Tuple[float, float],
-    y_range: Tuple[float, float],
-    t_val: float,
-    n_points: int = 80,
-    exact_func: Optional[Callable] = None,
-) -> Dict:
-    """
-    准备二维含时问题的绘图数据。
-    
-    返回:
-        'X': np.ndarray,    # 网格 X
-        'Y': np.ndarray,    # 网格 Y
-        'Z_pred': np.ndarray,
-        'Z_true': np.ndarray or None,
-        'error': np.ndarray or None,
-    """
-    x_min, x_max = x_range
-    y_min, y_max = y_range
-    x_lin = torch.linspace(x_min, x_max, n_points)
-    y_lin = torch.linspace(y_min, y_max, n_points)
-    X, Y = torch.meshgrid(x_lin, y_lin, indexing='ij')
-    t_tensor = torch.full((n_points * n_points, 1), t_val)
-    pts = torch.cat([X.flatten().reshape(-1, 1), Y.flatten().reshape(-1, 1), t_tensor], dim=1) # (N*N, 3) [x, y, t]
-    # 1. PINN 网络预测
-    Z_pred = None
-    if model is not None:
-        model.eval()
-        with torch.no_grad():
-            Z_pred = model(pts).numpy().reshape(n_points, n_points)     
-    result = {
-        'X': X.numpy(),
-        'Y': Y.numpy(),
-        't_val': t_val,
-        'Z_pred': Z_pred,
-    }
-    # 2. 精确/解析解评估
-    Z_true = None
-    if exact_func is not None:
-        Z_true = _safe_call_exact_func(exact_func, pts)
-        if Z_true is not None:
-            Z_true = Z_true.reshape(n_points, n_points)      
-    result['Z_true'] = Z_true
-    # 3. 误差计算
-    if Z_pred is not None and Z_true is not None:
-        result['error'] = np.abs(Z_pred - Z_true)
-    else:
-        result['error'] = None
-    return result
-# ============================================================================
-# 通用数据准备
-# ============================================================================
-def prepare_1d_data(
-    model: Optional[torch.nn.Module],
-    x_range: Tuple[float, float],
-    n_points: int = 200,
-    exact_func: Optional[Callable] = None,
-) -> Dict:
-    """准备一维稳态问题的绘图数据。"""
-    x_min, x_max = x_range
-    x_test = torch.linspace(x_min, x_max, n_points).reshape(-1, 1)
-    x_np = x_test.numpy().flatten()
-    u_pred = None
-    if model is not None:
-        model.eval()
-        with torch.no_grad():
-            u_pred = model(x_test).numpy().flatten()    
-    result = {'x': x_np, 'u_pred': u_pred}
-    u_true = None
-    if exact_func is not None:
-        u_true = _safe_call_exact_func(exact_func, x_test)
-    result['u_true'] = u_true
-    if u_pred is not None and u_true is not None:
-        result['error'] = np.abs(u_pred - u_true)
-    else:
-        result['error'] = None
-    return result
-def prepare_2d_data(
-    model: Optional[torch.nn.Module],
-    x_range: Tuple[float, float],
-    y_range: Tuple[float, float],
-    n_points: int = 80,
-    exact_func: Optional[Callable] = None,
-) -> Dict:
-    """准备二维稳态问题的绘图数据。"""
-    x_min, x_max = x_range
-    y_min, y_max = y_range
-    x_lin = torch.linspace(x_min, x_max, n_points)
-    y_lin = torch.linspace(y_min, y_max, n_points)
-    X, Y = torch.meshgrid(x_lin, y_lin, indexing='ij')
-    pts = torch.cat([X.flatten().reshape(-1, 1), Y.flatten().reshape(-1, 1)], dim=1)
-    # 1. PINN 网络预测
-    Z_pred = None
-    if model is not None:
-        model.eval()
-        with torch.no_grad():
-            Z_pred = model(pts).numpy().reshape(n_points, n_points)  
-    result = {
-        'X': X.numpy(),
-        'Y': Y.numpy(),
-        'Z_pred': Z_pred,
-    }
-    # 2. 精确解评估
-    Z_true = None
-    if exact_func is not None:
-        Z_true = _safe_call_exact_func(exact_func, pts)
-        if Z_true is not None:
-            Z_true = Z_true.reshape(n_points, n_points)    
-    result['Z_true'] = Z_true
-    # 3. 误差计算
-    if Z_pred is not None and Z_true is not None:
-        result['error'] = np.abs(Z_pred - Z_true)
-    else:
-        result['error'] = None
-    return result
-# ============================================================================
-# 辅助：创建子图网格
+# 3. 子图辅助与整合
 # ============================================================================
 def create_subplots(
     nrows: int,
@@ -739,9 +736,6 @@ def create_subplots(
     elif nrows == 1 or ncols == 1:
         axes = np.array(axes).reshape(nrows, ncols)
     return fig, axes
-# ============================================================================
-# 完整绘图示例（整合所有功能）
-# ============================================================================
 def draw_complete_solution(
     ax: plt.Axes,
     model: Optional[torch.nn.Module],

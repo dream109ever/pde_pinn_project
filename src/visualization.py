@@ -11,33 +11,22 @@ import numpy as np
 import ipywidgets as widgets
 import matplotlib.pyplot as plt
 from IPython.display import display
-from mpl_toolkits.mplot3d import Axes3D
-from typing import Optional, Dict, List, Tuple, Callable, Any
-# 导入 plotting_core 的所有功能
+from typing import Optional, Callable
 from .plotting_core import (
-    # 绘图函数
-    draw_loss_curve,
-    draw_1d_solution,
-    draw_1d_transient_slice,
-    draw_1d_time_slice,
-    draw_1d_transient_3d,
-    draw_1d_multiple_models,
-    draw_2d_contour,
-    draw_2d_error,
-    draw_2d_with_error,
-    draw_3d_surface,
-    draw_3d_compare,
-    # 数据准备函数
+    _safe_call_exact_func, 
     prepare_1d_data,
     prepare_2d_data,
     prepare_transient_1d_data,
     prepare_transient_2d_data,
     prepare_1d_time_slice_data,
-    # 辅助函数
-    create_subplots,
+    draw_loss_curve,
+    draw_1d_time_slice,
+    draw_1d_multiple_models,
+    draw_3d_surface,
+    draw_3d_compare,
 )
 # ============================================================================
-# 损失曲线
+# 绘图函数
 # ============================================================================
 def plot_loss_history(history, figsize=(10, 6), log_scale=True, save_path=None):
     """绘制训练损失曲线（Notebook 版本）"""
@@ -46,9 +35,6 @@ def plot_loss_history(history, figsize=(10, 6), log_scale=True, save_path=None):
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.show()
-# ============================================================================
-# 一维问题
-# ============================================================================
 def plot_1d_solution(
     model,
     x_range=(0, 1),
@@ -64,9 +50,7 @@ def plot_1d_solution(
     u_true = data['u_true']
     if u_true is not None:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-        # ----------------------------------------------------
         # 左图：预测解 vs 真实解
-        # ----------------------------------------------------
         ax1.plot(x, u_pred, 'b-', label='PINN Prediction', linewidth=2)
         ax1.plot(x, u_true, 'r--', label='Exact Solution', linewidth=2)
         ax1.set_title('1D Prediction vs Exact Solution', fontsize=11, fontweight='bold')
@@ -74,9 +58,7 @@ def plot_1d_solution(
         ax1.set_ylabel('u(x)')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
-        # ----------------------------------------------------
         # 右图：绝对误差曲线
-        # ----------------------------------------------------
         abs_err = np.abs(u_pred - u_true)
         ax2.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=2)
         ax2.fill_between(x, abs_err, color='magenta', alpha=0.15)
@@ -84,9 +66,7 @@ def plot_1d_solution(
         ax2.set_xlabel('x')
         ax2.set_ylabel('$|u_{pred} - u_{true}|$')
         ax2.grid(True, alpha=0.3)
-        # ----------------------------------------------------
         # 全局量化指标 Text Box 标注
-        # ----------------------------------------------------
         l2_rel_err = np.linalg.norm(u_pred - u_true) / (np.linalg.norm(u_true) + 1e-8)
         text_str = (
             "$\mathbf{Global\ Metrics}$\n"
@@ -111,6 +91,98 @@ def plot_1d_solution(
         ax.legend()
         ax.grid(True, alpha=0.3)
     plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.show()
+def plot_1d_transient_interactive(
+    model: torch.nn.Module,
+    x_range: tuple = (0, 1),
+    t_range: tuple = (0, 1),
+    n_points: int = 200,
+    exact_func: Optional[Callable] = None,
+    title: str = "1D Transient Solution",
+    save_path: Optional[str] = None,
+):
+    """一维含时问题：交互式双子图（滑块控制 + 曲线对比 + 绝对误差曲线 + 动态 L2 指标）"""
+    x_min, x_max = x_range
+    t_min, t_max = t_range
+    def _update_plot(t_val):
+        plt.close('all')
+        data = prepare_transient_1d_data(model, x_range, t_val, n_points, exact_func)
+        x = data['x']
+        u_pred = data['u_pred']
+        u_true = data['u_true']
+        if u_true is not None:
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+            # 左图：预测解 vs 真实解 (当前时刻 t)
+            ax1.plot(x, u_pred, 'b-', label=f'PINN (t={t_val:.3f})', linewidth=2)
+            ax1.plot(x, u_true, 'r--', label='Exact', linewidth=2)
+            ax1.set_title(f'1D Solution Profile (t = {t_val:.3f})', fontsize=11, fontweight='bold')
+            ax1.set_xlabel('x')
+            ax1.set_ylabel('u(x, t)')
+            ax1.legend()
+            ax1.grid(True, alpha=0.3)
+            # 右图：绝对误差曲线 (当前时刻 t)
+            abs_err = np.abs(u_pred - u_true)
+            ax2.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=2)
+            ax2.fill_between(x, abs_err, color='magenta', alpha=0.15)
+            ax2.set_title(f'1D Absolute Error (t = {t_val:.3f})', fontsize=11, fontweight='bold')
+            ax2.set_xlabel('x')
+            ax2.set_ylabel('$|u_{pred} - u_{true}|$')
+            ax2.grid(True, alpha=0.3)
+            # 动态量化指标 Text Box
+            l2_rel_err = np.linalg.norm(u_pred - u_true) / (np.linalg.norm(u_true) + 1e-8)
+            text_str = (
+                f"$\mathbf{{Metrics\ at\ t={t_val:.3f}}}$\n"
+                f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
+                f"• Max Abs Error: {abs_err.max():.3e}\n"
+                f"• Mean Abs Error: {abs_err.mean():.3e}"
+            )
+            ax2.text(
+                0.04, 0.96, text_str,
+                transform=ax2.transAxes,
+                fontsize=9.5,
+                verticalalignment='top',
+                horizontalalignment='left',
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.88, edgecolor='#cccccc')
+            )
+        else:
+            fig, ax = plt.subplots(figsize=(8, 5))
+            ax.plot(x, u_pred, 'b-', label=f'PINN (t={t_val:.3f})', linewidth=2)
+            ax.set_title(f'{title} (t = {t_val:.3f})', fontsize=11, fontweight='bold')
+            ax.set_xlabel('x')
+            ax.set_ylabel('u(x, t)')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.show()
+    slider = widgets.FloatSlider(
+        value=t_min,
+        min=t_min,
+        max=t_max,
+        step=(t_max - t_min) / 100,
+        description='Time (t):',
+        continuous_update=False,
+        style={'description_width': 'initial'},
+        layout=widgets.Layout(width='500px')
+    )
+    interactive_plot = widgets.interactive(_update_plot, t_val=slider)
+    display(interactive_plot)
+def plot_1d_time_slice(
+    model: torch.nn.Module,
+    x_val: float,
+    t_range: tuple = (0, 1),
+    n_points: int = 200,
+    exact_func: Optional[Callable] = None,
+    title: str = "Time Evolution at Fixed x",
+    save_path: Optional[str] = None,
+):
+    """绘制固定 x 位置处 u 随时间变化的曲线（Notebook 版本）"""
+    data = prepare_1d_time_slice_data(model, x_val, t_range, n_points, exact_func)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    draw_1d_time_slice(ax, data['t'], data['u_pred'], x_val, data['u_true'], title)
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.show()
@@ -139,9 +211,6 @@ def plot_comparison_1d_multiple(
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.show()
-# ============================================================================
-# 二维问题
-# ============================================================================
 def plot_2d_solution(
     model,
     x_range=(0, 1),
@@ -158,9 +227,7 @@ def plot_2d_solution(
     if true_func is not None:
         Z_true = data['Z_true']
         fig = plt.figure(figsize=(15, 6))
-        # ----------------------------------------------------
         # 左图：3D 预测解曲面图
-        # ----------------------------------------------------
         ax1 = fig.add_subplot(1, 2, 1, projection='3d')
         surf = ax1.plot_surface(
             X, Y, Z_pred,
@@ -175,9 +242,7 @@ def plot_2d_solution(
         ax1.set_zlabel('u')
         ax1.view_init(elev=30, azim=-60)
         fig.colorbar(surf, ax=ax1, shrink=0.5, aspect=10, pad=0.08)
-        # ----------------------------------------------------
         # 右图：2D 绝对误差分布云图
-        # ----------------------------------------------------
         ax2 = fig.add_subplot(1, 2, 2)
         abs_error = np.abs(Z_pred - Z_true)
         cf = ax2.contourf(X, Y, abs_error, levels=50, cmap='inferno')
@@ -186,9 +251,7 @@ def plot_2d_solution(
         ax2.set_xlabel('X')
         ax2.set_ylabel('Y')
         ax2.set_aspect('equal')
-        # ----------------------------------------------------
         # 全局量化指标 Text Box 标注
-        # ----------------------------------------------------
         l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
         text_str = (
             "$\mathbf{Global\ Metrics}$\n"
@@ -243,91 +306,6 @@ def plot_3d_surface(
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.show()
-# ============================================================================
-# 含时问题交互式
-# ============================================================================
-def plot_1d_transient_interactive(
-    model: torch.nn.Module,
-    x_range: tuple = (0, 1),
-    t_range: tuple = (0, 1),
-    n_points: int = 200,
-    exact_func: Optional[Callable] = None,
-    title: str = "1D Transient Solution",
-    save_path: Optional[str] = None,
-):
-    """一维含时问题：交互式双子图（滑块控制 + 曲线对比 + 绝对误差曲线 + 动态 L2 指标）"""
-    x_min, x_max = x_range
-    t_min, t_max = t_range
-    def _update_plot(t_val):
-        plt.close('all')
-        data = prepare_transient_1d_data(model, x_range, t_val, n_points, exact_func)
-        x = data['x']
-        u_pred = data['u_pred']
-        u_true = data['u_true']
-        if u_true is not None:
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-            # ----------------------------------------------------
-            # 左图：预测解 vs 真实解 (当前时刻 t)
-            # ----------------------------------------------------
-            ax1.plot(x, u_pred, 'b-', label=f'PINN (t={t_val:.3f})', linewidth=2)
-            ax1.plot(x, u_true, 'r--', label='Exact', linewidth=2)
-            ax1.set_title(f'1D Solution Profile (t = {t_val:.3f})', fontsize=11, fontweight='bold')
-            ax1.set_xlabel('x')
-            ax1.set_ylabel('u(x, t)')
-            ax1.legend()
-            ax1.grid(True, alpha=0.3)
-            # ----------------------------------------------------
-            # 右图：绝对误差曲线 (当前时刻 t)
-            # ----------------------------------------------------
-            abs_err = np.abs(u_pred - u_true)
-            ax2.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=2)
-            ax2.fill_between(x, abs_err, color='magenta', alpha=0.15)
-            ax2.set_title(f'1D Absolute Error (t = {t_val:.3f})', fontsize=11, fontweight='bold')
-            ax2.set_xlabel('x')
-            ax2.set_ylabel('$|u_{pred} - u_{true}|$')
-            ax2.grid(True, alpha=0.3)
-            # ----------------------------------------------------
-            # 动态量化指标 Text Box
-            # ----------------------------------------------------
-            l2_rel_err = np.linalg.norm(u_pred - u_true) / (np.linalg.norm(u_true) + 1e-8)
-            text_str = (
-                f"$\mathbf{{Metrics\ at\ t={t_val:.3f}}}$\n"
-                f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
-                f"• Max Abs Error: {abs_err.max():.3e}\n"
-                f"• Mean Abs Error: {abs_err.mean():.3e}"
-            )
-            ax2.text(
-                0.04, 0.96, text_str,
-                transform=ax2.transAxes,
-                fontsize=9.5,
-                verticalalignment='top',
-                horizontalalignment='left',
-                bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.88, edgecolor='#cccccc')
-            )
-        else:
-            fig, ax = plt.subplots(figsize=(8, 5))
-            ax.plot(x, u_pred, 'b-', label=f'PINN (t={t_val:.3f})', linewidth=2)
-            ax.set_title(f'{title} (t = {t_val:.3f})', fontsize=11, fontweight='bold')
-            ax.set_xlabel('x')
-            ax.set_ylabel('u(x, t)')
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        if save_path:
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        plt.show()
-    slider = widgets.FloatSlider(
-        value=t_min,
-        min=t_min,
-        max=t_max,
-        step=(t_max - t_min) / 100,
-        description='Time (t):',
-        continuous_update=False,
-        style={'description_width': 'initial'},
-        layout=widgets.Layout(width='500px')
-    )
-    interactive_plot = widgets.interactive(_update_plot, t_val=slider)
-    display(interactive_plot)
 def plot_2d_transient_interactive(
     model: torch.nn.Module,
     x_range: tuple = (0, 1),
@@ -353,11 +331,8 @@ def plot_2d_transient_interactive(
         X, Y = data['X'], data['Y']
         Z_pred = data['Z_pred']
         if exact_func is not None:
-            # 创建双子图画布
             fig = plt.figure(figsize=(12.5, 6))
-            # ----------------------------------------------------
             # 左图：3D 预测解曲面图 (3D Surface Plot)
-            # ----------------------------------------------------
             ax1 = fig.add_subplot(1, 2, 1, projection='3d')
             surf = ax1.plot_surface(
                 X, Y, Z_pred, 
@@ -373,9 +348,7 @@ def plot_2d_transient_interactive(
             # 调整 3D 图视角的初始角度（可按需修改 elev 和 azim）
             ax1.view_init(elev=30, azim=-60)
             fig.colorbar(surf, ax=ax1, shrink=0.5, aspect=10, pad=0.08)
-            # ----------------------------------------------------
             # 右图：2D 绝对误差分布图 (2D Error Contour)
-            # ----------------------------------------------------
             ax2 = fig.add_subplot(1, 2, 2)
             Z_true = data['Z_true']
             error = np.abs(Z_pred - Z_true)
@@ -386,21 +359,16 @@ def plot_2d_transient_interactive(
             ax2.set_xlabel('X')
             ax2.set_ylabel('Y')
             ax2.set_aspect('equal')
-            # ----------------------------------------------------
             # 量化指标计算与图角 Text Box 标注
-            # ----------------------------------------------------
-            # 1. 计算全局相对 L2 误差 (全局量化得分)
             l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
             max_abs_err = error.max()
             mean_abs_err = error.mean()
-            # 2. 拼接文本内容（支持百分比与科学计数法）
             text_str = (
                 f"$\mathbf{{Metrics\ at\ t={t_val:.3f}}}$\n"
                 f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
                 f"• Max Abs Error: {max_abs_err:.3e}\n"
                 f"• Mean Abs Error: {mean_abs_err:.3e}"
             )
-            # 3. 渲染 Text Box
             ax2.text(
                 0.04, 0.96, text_str,
                 transform=ax2.transAxes,
@@ -437,25 +405,125 @@ def plot_2d_transient_interactive(
         max=t_max,
         step=(t_max - t_min) / 100,  # 划分为 100 步
         description='Time (t):',
-        continuous_update=False,     # 关键：避免拖动滑块时触发多次 3D 重绘导致卡顿
+        continuous_update=False,     # 避免拖动滑块时触发多次 3D 重绘导致卡顿
         style={'description_width': 'initial'},
         layout=widgets.Layout(width='500px')
     )
     interactive_plot = widgets.interactive(_update_plot, t_val=slider)
     display(interactive_plot)
-def plot_1d_time_slice(
-    model: torch.nn.Module,
-    x_val: float,
+def plot_1d_transient_3d(
+    model: Optional[torch.nn.Module] = None,
+    x_range: tuple = (0, 1),
     t_range: tuple = (0, 1),
-    n_points: int = 200,
+    n_x: int = 60,
+    n_t: int = 60,
     exact_func: Optional[Callable] = None,
-    title: str = "Time Evolution at Fixed x",
+    title: str = "1D Transient 3D Evolution",
     save_path: Optional[str] = None,
 ):
-    """绘制固定 x 位置处 u 随时间变化的曲线（Notebook 版本）"""
-    data = prepare_1d_time_slice_data(model, x_val, t_range, n_points, exact_func)
-    fig, ax = plt.subplots(figsize=(8, 5))
-    draw_1d_time_slice(ax, data['t'], data['u_pred'], x_val, data['u_true'], title)
+    """
+    一维含时问题的 3D 时空演化曲面图（Notebook 版本）
+    适用于展示 u(x,t) 在整个时空域上的变化
+    """
+    x_min, x_max = x_range
+    t_min, t_max = t_range
+    x_lin = torch.linspace(x_min, x_max, n_x)
+    t_lin = torch.linspace(t_min, t_max, n_t)
+    X, T = torch.meshgrid(x_lin, t_lin, indexing='ij')
+    pts = torch.cat([X.flatten().reshape(-1, 1), T.flatten().reshape(-1, 1)], dim=1)
+    if model is not None:
+        model.eval()
+        with torch.no_grad():
+            Z_pred = model(pts).numpy().reshape(n_x, n_t)
+    else:
+        Z_pred = None
+    if exact_func is not None:
+        Z_true = _safe_call_exact_func(exact_func, pts)
+        if Z_true is not None:
+            Z_true = Z_true.reshape(n_x, n_t)
+    else:
+        Z_true = None
+    fig = plt.figure(figsize=(12, 5))
+    ax1 = fig.add_subplot(1, 2, 1, projection='3d')
+    display_Z = Z_pred if Z_pred is not None else Z_true
+    if display_Z is not None:
+        surf = ax1.plot_surface(X.numpy(), T.numpy(), display_Z, cmap='viridis', edgecolor='none', alpha=0.85)
+        ax1.set_title('PINN Prediction' if Z_pred is not None else 'Analytical Solution')
+        fig.colorbar(surf, ax=ax1, shrink=0.5, aspect=10)
+    else:
+        ax1.text(0.5, 0.5, "No data", ha='center', va='center')
+        ax1.set_title('No data')
+    ax1.set_xlabel('x')
+    ax1.set_ylabel('t')
+    ax1.set_zlabel('u(x,t)')
+    ax1.view_init(elev=25, azim=-60)
+    if Z_pred is not None and Z_true is not None:
+        ax2 = fig.add_subplot(1, 2, 2, projection='3d')
+        surf2 = ax2.plot_surface(X.numpy(), T.numpy(), Z_true, cmap='plasma', edgecolor='none', alpha=0.85)
+        ax2.set_title('Exact Solution')
+        fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10)
+        ax2.set_xlabel('x')
+        ax2.set_ylabel('t')
+        ax2.set_zlabel('u(x,t)')
+        ax2.view_init(elev=25, azim=-60)
+        error = np.abs(Z_pred - Z_true)
+        print(f"Max error: {error.max():.2e}, Mean error: {error.mean():.2e}")
+    elif Z_pred is not None and Z_true is None:
+        ax2 = fig.add_subplot(1, 2, 2)
+        cp = ax2.contourf(X.numpy(), T.numpy(), Z_pred, levels=30, cmap='viridis')
+        ax2.set_title('Contour View')
+        fig.colorbar(cp, ax=ax2)
+        ax2.set_xlabel('x')
+        ax2.set_ylabel('t')
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.show()
+def plot_2d_transient_slices(
+    model: Optional[torch.nn.Module] = None,
+    x_range: tuple = (0, 1),
+    y_range: tuple = (0, 1),
+    t_range: tuple = (0, 1),
+    n_points: int = 50,
+    n_t: int = 4,
+    exact_func: Optional[Callable] = None,
+    title: str = "2D Transient Slices",
+    save_path: Optional[str] = None,
+):
+    """
+    二维含时问题的多时间切片云图（Notebook 版本）
+    """
+    t_values = np.linspace(t_range[0], t_range[1], n_t)
+    fig, axes = plt.subplots(2, n_t, figsize=(3*n_t, 6))
+    if n_t == 1:
+        axes = np.array([[axes[0]], [axes[1]]])
+    for idx, t_val in enumerate(t_values):
+        data = prepare_transient_2d_data(model, x_range, y_range, t_val, n_points, exact_func)
+        # 第一行：预测（或解析解）
+        Z_display = data['Z_pred'] if data['Z_pred'] is not None else data['Z_true']
+        if Z_display is not None:
+            cp1 = axes[0, idx].contourf(data['X'], data['Y'], Z_display, levels=30, cmap='viridis')
+            axes[0, idx].set_title(f't={t_val:.2f}')
+            fig.colorbar(cp1, ax=axes[0, idx], shrink=0.6)
+        else:
+            axes[0, idx].text(0.5, 0.5, "No data", ha='center', va='center')
+            axes[0, idx].set_title(f't={t_val:.2f}')
+        axes[0, idx].set_xlabel('x')
+        axes[0, idx].set_ylabel('y')
+        if idx == 0:
+            axes[0, idx].set_ylabel('PINN' if data['Z_pred'] is not None else 'Analytical')
+        # 第二行：真实解（如果有）
+        if data['Z_true'] is not None and data['Z_pred'] is not None:
+            cp2 = axes[1, idx].contourf(data['X'], data['Y'], data['Z_true'], levels=30, cmap='plasma')
+            axes[1, idx].set_xlabel('x')
+            axes[1, idx].set_ylabel('y')
+            fig.colorbar(cp2, ax=axes[1, idx], shrink=0.6)
+            if idx == 0:
+                axes[1, idx].set_ylabel('Exact')
+        else:
+            axes[1, idx].axis('off')
+    plt.suptitle(title, fontsize=14)
+    plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.show()
@@ -518,13 +586,11 @@ def quick_plot_from_trainer(
     t_range=None,
 ):
     """从训练器快速生成损失曲线和解的对比图"""
-    # 绘制损失曲线
     history = trainer.get_loss_history()
     if save_dir:
         plot_loss_history(history, save_path=f"{save_dir}/loss.png")
     else:
         plot_loss_history(history)
-    # 绘制解
     model = trainer.model
     plot_solution(
         model,
@@ -602,7 +668,13 @@ if __name__ == "__main__":
     plot_comparison_1d_multiple([model, model2], ["Model 1", "Model 2"], true_func=true_func_1d)
     print("  ✅")
     print("\n[测试 6] plot_1d_time_slice")
-    plot_1d_time_slice( model_1d_transient, x_val=0.5, t_range=(0, 1), exact_func=true_func_1d_transient )
+    plot_1d_time_slice(model_1d_transient, x_val=0.5, t_range=(0, 1), exact_func=true_func_1d_transient)
+    print("  ✅")
+    print("\n[测试 7] plot_1d_transient_3d")
+    plot_1d_transient_3d(model_1d_transient, x_range=(0, 1), t_range=(0, 1.5), exact_func=true_func_1d_transient)
+    print("  ✅")
+    print("\n[测试 8] plot_2d_transient_slices")
+    plot_2d_transient_slices(model_2d_transient, x_range=(0, 1), y_range=(0, 1), t_range=(0, 0.5), exact_func=true_func_2d_transient)
     print("  ✅")
     print("\n" + "=" * 70)
     print("所有测试完成！")
