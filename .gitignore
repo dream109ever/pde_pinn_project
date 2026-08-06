@@ -29,3 +29,5 @@ docs/_build/*
 docs/_build/html/*
 !docs/_build/html/index.html
 docs/_static/
+count.bat
+$null
