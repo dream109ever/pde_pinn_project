@@ -1,3 +1,4 @@
+import re
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QComboBox, QLabel, QPushButton,
     QTextEdit, QLineEdit, QMessageBox, QSpinBox, QGroupBox
@@ -154,9 +155,22 @@ class SolverPage(InputPage):
     def on_solve_finished(self, result_data):
         self.solve_btn.setEnabled(True)
         self.current_result = result_data
-        self.result_latex.set_latex(str(result_data['exact_expr']))
+        raw_expr = result_data.get('exact_expr')
+        if raw_expr is not None:
+            display_expr = self._format_numeric_expr(raw_expr)
+        else:
+            display_expr = r"\text{无解析解}"
+        self.result_latex.set_latex(display_expr)
         self.plot_btn.setEnabled(True)
         QMessageBox.information(self, "成功", "方程求解成功！")
+    def _format_numeric_expr(self, expr_str: str) -> str:
+        """将表达式中的浮点数精简到合理精度"""
+        def format_num(match):
+            num = float(match.group(0))
+            if abs(num - round(num)) < 1e-6:
+                return f"{round(num):.1f}"
+            return f"{num:.6g}"
+        return re.sub(r'(?<![A-Za-z)])-?\d+\.\d+', format_num, expr_str)
     def on_solve_error(self, err_msg):
         self.solve_btn.setEnabled(True)
         self.plot_btn.setEnabled(False)

@@ -42,21 +42,24 @@ class PlotWindow(BaseDialog):
         self.sliders = {}
         self.plot_widget = None
         self.mode_combo = None
-        c_symbols = self.result_data.get('c_symbols', [])
-        if not c_symbols:
-            raw_rhs = self.result_data.get('raw_rhs')
-            if raw_rhs is not None:
-                try:
-                    if isinstance(raw_rhs, str): expr = sp.sympify(raw_rhs)
-                    elif isinstance(raw_rhs, sp.Expr): expr = raw_rhs
-                    else: expr = None
-                    if expr is not None and isinstance(expr, sp.Expr):
-                        var_syms = {sp.Symbol('x'), sp.Symbol('y'), sp.Symbol('t')}
-                        c_syms = [str(s) for s in expr.free_symbols if s not in var_syms]
-                        c_syms.sort(key=lambda s: s)
-                        if c_syms: self.result_data['c_symbols'] = c_syms
-                except Exception as e:
-                    print(f"[PlotWindow] 提取 C 符号失败: {e}")
+        dimension = result_data.get('dimension', 1)
+        has_t = result_data.get('has_t', False)
+        if dimension == 1 and not has_t:
+            c_symbols = self.result_data.get('c_symbols', [])
+            if not c_symbols:
+                raw_rhs = self.result_data.get('raw_rhs')
+                if raw_rhs is not None:
+                    try:
+                        if isinstance(raw_rhs, str): expr = sp.sympify(raw_rhs)
+                        elif isinstance(raw_rhs, sp.Expr): expr = raw_rhs
+                        else: expr = None
+                        if expr is not None and isinstance(expr, sp.Expr):
+                            var_syms = {sp.Symbol('x'), sp.Symbol('y'), sp.Symbol('t')}
+                            c_syms = [str(s) for s in expr.free_symbols if s not in var_syms]
+                            c_syms.sort(key=lambda s: s)
+                            if c_syms: self.result_data['c_symbols'] = c_syms
+                    except Exception as e:
+                        print(f"[PlotWindow] 提取 C 符号失败: {e}")
         self.init_ui()
         self._apply_mpl_theme()
     def init_ui(self):
@@ -102,6 +105,22 @@ class PlotWindow(BaseDialog):
         self.refresh_plot()
     def get_exact_callable(self):
         """将 SymPy 表达式/等式/字符串转换为 NumPy/PyTorch 万能兼容的 Python 函数"""
+        dimension = self.result_data.get('dimension', 1)
+        has_t = self.result_data.get('has_t', False)
+        if has_t or dimension == 2:
+            exact_sol = self.result_data.get('exact_solution')
+            if callable(exact_sol):
+                try:
+                    if dimension == 1:
+                        test_result = exact_sol(np.array([0.5]), np.array([0.1]))
+                    elif has_t and dimension == 2:
+                        test_result = exact_sol(np.array([0.5]), np.array([0.5]), np.array([0.1]))
+                    else:
+                        test_result = exact_sol(np.array([0.5]), np.array([0.5]))
+                    if isinstance(test_result, np.ndarray):
+                        return exact_sol
+                except Exception as e:
+                    print(f"[PlotWindow] 含时 exact_solution 测试失败: {e}")
         # 1. 多 Key 兼容获取解析解表达式
         raw_rhs = (
             self.result_data.get('raw_rhs') or 
@@ -130,7 +149,6 @@ class PlotWindow(BaseDialog):
                     return float(item)
                 except (TypeError, ValueError):
                     return np.nan
-
             return np.vectorize(_convert_item, otypes=[float])(arr)
         is_sympy_obj = isinstance(raw_rhs, (sp.Basic, sp.core.function.FunctionClass))
         if callable(raw_rhs) and not is_sympy_obj:

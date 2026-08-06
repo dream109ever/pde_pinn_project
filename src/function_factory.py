@@ -670,7 +670,11 @@ class AnalyticalSolverHub:
                                 lambda_n = (n * np.pi / Lx) ** 2
                                 u += A_n * np.sin(n * np.pi * (xv - x_min) / Lx) * np.exp(-(kappa * lambda_n + beta) * (tv - t_min))
                         return u[0] if scalar else u
-                    exact_expr = f"u(x,t) = \sum [A_n * e^(-({kappa:.3f}*(nπ/{Lx:.2f})^2 + {beta:.3f})*t) * sin(nπ(x-{x_min:.2f})/{Lx:.2f})]"
+                    exact_expr = (
+                        f"u(x,t) = Σ [ T_n(t) * sin(nπ(x-{x_min:.2f})/{Lx:.2f}) ]\n"
+                        f"  其中 T_n(t) = A_n * exp(-({kappa:.3f}*(nπ/{Lx:.2f})² + {beta:.3f}) * t)\n"
+                        f"        A_n = (2/{Lx:.2f}) * ∫₀^{Lx:.2f} φ(x) * sin(nπx/{Lx:.2f}) dx"
+                    )
                 # Case A2: 两端绝热热传导 或 绝热耗散方程 (两端齐次 Neumann)
                 elif left_type == "neumann" and right_type == "neumann" and left_homo and right_homo:
                     matched_analytical = True
@@ -692,7 +696,13 @@ class AnalyticalSolverHub:
                                 lambda_n = (n * np.pi / Lx) ** 2
                                 u += A_n * np.cos(n * np.pi * (xv - x_min) / Lx) * np.exp(-(kappa * lambda_n + beta) * (tv - t_min))
                         return u[0] if scalar else u
-                    exact_expr = f"u(x,t) = A0*e^(-{beta:.3f}*t) + \sum [A_n * e^(-({kappa:.3f}*(nπ/{Lx:.2f})^2 + {beta:.3f})*t) * cos(nπ(x-{x_min:.2f})/{Lx:.2f})]"
+                    exact_expr = (
+                        f"u(x,t) = T_0(t) + Σ [ T_n(t) * cos(nπ(x-{x_min:.2f})/{Lx:.2f}) ]\n"
+                        f"  其中 T_0(t) = A0 * exp(-{beta:.3f} * t)\n"
+                        f"        T_n(t) = A_n * exp(-({kappa:.3f}*(nπ/{Lx:.2f})² + {beta:.3f}) * t)\n"
+                        f"        A0 = (1/{Lx:.2f}) * ∫₀^{Lx:.2f} φ(x) dx\n"
+                        f"        A_n = (2/{Lx:.2f}) * ∫₀^{Lx:.2f} φ(x) * cos(nπx/{Lx:.2f}) dx"
+                    )
                 # Case A3: 绝热辐射 / 混合边界热传导 (左端绝热 Neumann, 右端端点冷却/固定 Dirichlet)
                 elif left_type == "neumann" and right_type == "dirichlet" and left_homo and right_homo:
                     matched_analytical = True
@@ -712,7 +722,12 @@ class AnalyticalSolverHub:
                                 omega_n = (2 * n - 1) * np.pi / (2 * Lx)
                                 u += A_n * np.cos(omega_n * (xv - x_min)) * np.exp(-(kappa * (omega_n**2) + beta) * (tv - t_min))
                         return u[0] if scalar else u
-                    exact_expr = f"u(x,t) = \sum [A_n * e^(-({kappa:.3f}*omega_n^2 + {beta:.3f})*t) * cos(omega_n*(x-{x_min:.2f}))]"
+                    exact_expr = (
+                        f"u(x,t) = Σ [ T_n(t) * cos(ω_n * (x-{x_min:.2f})) ]\n"
+                        f"  其中 ω_n = (2n-1)π/(2{Lx:.2f})\n"
+                        f"        T_n(t) = A_n * exp(-({kappa:.3f} * ω_n² + {beta:.3f}) * t)\n"
+                        f"        A_n = (2/{Lx:.2f}) * ∫₀^{Lx:.2f} φ(x) * cos(ω_n*x) dx"
+                    )
             # ---------------- 类型二：双曲型波动方程大类 ----------------
             elif abs(v_tt) > 1e-9 and abs(v_xx) > 1e-9 and abs(v_x) < 1e-9:
                 a2 = -v_xx / v_tt
@@ -755,7 +770,14 @@ class AnalyticalSolverHub:
                                     T_t = B_n * np.exp(r1 * tau) + (A_n - B_n) * np.exp(r2 * tau)
                                 u += T_t * np.sin(n * np.pi * (xv - x_min) / Lx)
                         return u[0] if scalar else u
-                    exact_expr = f"u(x,t) = \sum [T_n(t) * sin(nπ(x-{x_min:.2f})/{Lx:.2f})]"
+                    exact_expr = (
+                        f"u(x,t) = Σ [ T_n(t) * sin(nπ(x-{x_min:.2f})/{Lx:.2f}) ]\n"
+                        f"  其中 T_n(t) 由初始条件 φ(x), ψ(x) 确定，满足：\n"
+                        f"        T_n(0) = (2/{Lx:.2f}) * ∫₀^{Lx:.2f} φ(x) * sin(nπx/{Lx:.2f}) dx\n"
+                        f"        T_n'(0) = (2/{Lx:.2f}) * ∫₀^{Lx:.2f} ψ(x) * sin(nπx/{Lx:.2f}) dx\n"
+                        f"        ω_n = {a:.3f} * nπ / {Lx:.2f}\n"
+                        f"        T_n(t) = A_n*cos(ω_n*t) + (B_n/ω_n)*sin(ω_n*t)  (γ={gamma:.3f}, β={beta:.3f})"
+                    )
                 # Case B3: 两端自由边界波动方程 (两端齐次自由绝热 Neumann)
                 elif left_type == "neumann" and right_type == "neumann" and left_homo and right_homo:
                     matched_analytical = True
@@ -790,7 +812,13 @@ class AnalyticalSolverHub:
                                 T_t = B_n * np.exp(r1 * tau) + (A_n - B_n) * np.exp(r2 * tau)
                             u += T_t * np.cos(n * np.pi * (xv - x_min) / Lx)
                         return u[0] if scalar else u
-                    exact_expr = f"u(x,t) = T_0(t) + \sum [T_n(t) * cos(nπ(x-{x_min:.2f})/{Lx:.2f})]"
+                    exact_expr = (
+                        f"u(x,t) = T_0(t) + Σ [ T_n(t) * cos(nπ(x-{x_min:.2f})/{Lx:.2f}) ]\n"
+                        f"  其中 T_0(t) 由初始条件 φ(x), ψ(x) 确定，满足：\n"
+                        f"        T_0(0) = (1/{Lx:.2f}) * ∫₀^{Lx:.2f} φ(x) dx\n"
+                        f"        T_0'(0) = (1/{Lx:.2f}) * ∫₀^{Lx:.2f} ψ(x) dx\n"
+                        f"        T_n(t) 满足 T_n'' + {gamma:.3f}*T_n' + ({a:.3f}*nπ/{Lx:.2f})²*T_n = 0"
+                    )
         # ====================== 有限差分法 (FDM) Fallback  ======================
         if not matched_analytical:
             nx = 60
@@ -906,6 +934,16 @@ class AnalyticalSolverHub:
         # 将全局共享的表达式构建提取器移出局部作用域，防止 NameError 错误
         def build_expr(A_coeffs, case_idx):
             terms = []
+            if case_idx == 6:
+                # 情况 6: 单重求和，系数为 B_n，键为 n
+                for n in range(1, min(N_terms, 3) + 1):
+                    B_val = A_coeffs.get(n, 0)
+                    if abs(B_val) > 1e-12:
+                        terms.append(
+                            f"{B_val:.4f}*sinh({n}π(y-{y_min})/{Lx})/sinh({n}π*{Ly:.2f}/{Lx:.2f})*sin({n}π(x-{x_min})/{Lx})"
+                        )
+                expr = " + ".join(terms)
+                return f"u(x,y) = {expr} + ... (前{min(N_terms, 3)}项)" if terms else "u(x,y) = 0"
             for m in range(1, min(N_terms, 3) + 1):
                 for n in range(1, min(N_terms, 3) + 1):
                     A_val = A_coeffs.get((m, n), 0)
@@ -913,13 +951,13 @@ class AnalyticalSolverHub:
                         if case_idx == 1:
                             terms.append(f"{A_val:.4f}*sin({m}π(x-{x_min})/{Lx})*sin({n}π(y-{y_min})/{Ly})")
                         elif case_idx == 2:
-                            terms.append(f"{A_val:.4f}*sin({m}π(x-{x_min})/{Lx})*sin({(2*n-1)}π(y-{y_min})/(2{Ly}))")
+                            terms.append(f"{A_val:.4f}*sin({m}π(x-{x_min})/{Lx})*sin({(2*n-1)}π(y-{y_min})/({2*Ly}))")
                         elif case_idx == 3:
-                            terms.append(f"{A_val:.4f}*sin({m}π(x-{x_min})/{Lx})*cos({(2*n-1)}π(y-{y_min})/(2{Ly}))")
+                            terms.append(f"{A_val:.4f}*sin({m}π(x-{x_min})/{Lx})*cos({(2*n-1)}π(y-{y_min})/({2*Ly}))")
                         elif case_idx == 4:
-                            terms.append(f"{A_val:.4f}*sin({(2*m-1)}π(x-{x_min})/(2{Lx}))*sin({n}π(y-{y_min})/{Ly})")
+                            terms.append(f"{A_val:.4f}*sin({(2*m-1)}π(x-{x_min})/({2*Lx}))*sin({n}π(y-{y_min})/{Ly})")
                         elif case_idx == 5:
-                            terms.append(f"{A_val:.4f}*cos({(2*m-1)}π(x-{x_min})/(2{Lx}))*sin({n}π(y-{y_min})/{Ly})")
+                            terms.append(f"{A_val:.4f}*cos({(2*m-1)}π(x-{x_min})/({2*Lx}))*sin({n}π(y-{y_min})/{Ly})")
             return "u(x,y) = " + " + ".join(terms) + f" + ... (前{N_terms}项)" if terms else "u(x,y) = 0"
         if is_poisson:
             # ---------- 情况1: 四边齐次 Dirichlet ----------
@@ -944,7 +982,13 @@ class AnalyticalSolverHub:
                         if abs(A_mn) > 1e-12:
                             u += A_mn * np.sin(m * np.pi * (xv - x_min) / Lx) * np.sin(n * np.pi * (yv - y_min) / Ly)
                     return u[0] if scalar else u
-                exact_expr = build_expr(A_coeffs, 1)
+                exact_expr = (
+                    f"u(x,y) = Σ_m Σ_n [ A_mn * sin(mπ(x-{x_min})/{Lx}) * sin(nπ(y-{y_min})/{Ly}) ]\n"
+                    f"  其中 A_mn = -4/({Lx}*{Ly}*λ_mn) * ∫∫ f(x,y) * sin(mπ(x-{x_min})/{Lx}) * sin(nπ(y-{y_min})/{Ly}) dxdy\n"
+                    f"        λ_mn = (mπ/{Lx})² + (nπ/{Ly})²\n"
+                    f"  前 {N_terms} 项展开为:\n"
+                    + build_expr(A_coeffs, 1)
+                )
             # ---------- 情况2: x方向齐次Dirichlet，y方向混合（Dirichlet+Neumann） ----------
             # 边界: u(0,y)=0, u(a,y)=0, u(x,0)=0, u_y(x,b)=0（或 u(x,b)=0, u_y(x,0)=0）
             # 本征函数: sin(mπx/Lx) * sin((2n-1)πy/(2Ly))
@@ -972,7 +1016,13 @@ class AnalyticalSolverHub:
                             nu_n = (2*n - 1) * np.pi / (2 * Ly)
                             u += A_mn * np.sin(mu_m * (xv - x_min)) * np.sin(nu_n * (yv - y_min))
                     return u[0] if scalar else u
-                exact_expr = build_expr(A_coeffs, 2)
+                exact_expr = (
+                    f"u(x,y) = Σ_m Σ_n [ A_mn * sin(mπ(x-{x_min})/{Lx}) * sin((2n-1)π(y-{y_min})/(2*{Ly})) ]\n"
+                    f"  其中 λ_mn = (mπ/{Lx})² + ((2n-1)π/(2*{Ly}))²\n"
+                    f"        A_mn = -4/({Lx}*{Ly}*λ_mn) * ∫∫ f(x,y) * sin(mπ(x-{x_min})/{Lx}) * sin((2n-1)π(y-{y_min})/(2*{Ly})) dxdy\n"
+                    f"  前 {N_terms} 项展开为:\n"
+                    + build_expr(A_coeffs, 2)
+                )
             # ---------- 情况3: 类似情况2，但bottom是Neumann，top是Dirichlet ----------
             elif (is_dirichlet("left") and is_homogeneous("left") and
                   is_dirichlet("right") and is_homogeneous("right") and
@@ -997,7 +1047,13 @@ class AnalyticalSolverHub:
                             nu_n = (2*n - 1) * np.pi / (2 * Ly)
                             u += A_mn * np.sin(mu_m * (xv - x_min)) * np.cos(nu_n * (yv - y_min))
                     return u[0] if scalar else u
-                exact_expr = build_expr(A_coeffs, 3)
+                exact_expr = (
+                    f"u(x,y) = Σ_m Σ_n [ A_mn * sin(mπ(x-{x_min})/{Lx}) * cos((2n-1)π(y-{y_min})/(2*{Ly})) ]\n"
+                    f"  其中 λ_mn = (mπ/{Lx})² + ((2n-1)π/(2*{Ly}))²\n"
+                    f"        A_mn = -4/({Lx}*{Ly}*λ_mn) * ∫∫ f(x,y) * sin(mπ(x-{x_min})/{Lx}) * cos((2n-1)π(y-{y_min})/(2*{Ly})) dxdy\n"
+                    f"  前 {N_terms} 项展开为:\n"
+                    + build_expr(A_coeffs, 3)
+                )
             # ---------- 情况4: y方向齐次Dirichlet，x方向混合 ----------
             elif (is_dirichlet("bottom") and is_homogeneous("bottom") and
                   is_dirichlet("top") and is_homogeneous("top") and
@@ -1022,7 +1078,13 @@ class AnalyticalSolverHub:
                             nu_n = n * np.pi / Ly
                             u += A_mn * np.sin(mu_m * (xv - x_min)) * np.sin(nu_n * (yv - y_min))
                     return u[0] if scalar else u
-                exact_expr = build_expr(A_coeffs, 4)
+                exact_expr = (
+                    f"u(x,y) = Σ_m Σ_n [ A_mn * sin((2m-1)π(x-{x_min})/(2{Lx})) * sin(nπ(y-{y_min})/{Ly}) ]\n"
+                    f"  其中 λ_mn = ((2m-1)π/(2{Lx}))² + (nπ/{Ly})²\n"
+                    f"        A_mn = -4/({Lx}*{Ly}*λ_mn) * ∫∫ f(x,y) * sin((2m-1)π(x-{x_min})/(2{Lx})) * sin(nπ(y-{y_min})/{Ly}) dxdy\n"
+                    f"  前 {N_terms} 项展开为:\n"
+                    + build_expr(A_coeffs, 4)
+                )
             # ---------- 情况5: 类似情况4，left是Neumann，right是Dirichlet ----------
             elif (is_dirichlet("bottom") and is_homogeneous("bottom") and
                   is_dirichlet("top") and is_homogeneous("top") and
@@ -1047,7 +1109,13 @@ class AnalyticalSolverHub:
                             nu_n = n * np.pi / Ly
                             u += A_mn * np.cos(mu_m * (xv - x_min)) * np.sin(nu_n * (yv - y_min))
                     return u[0] if scalar else u
-                exact_expr = build_expr(A_coeffs, 5)
+                exact_expr = (
+                    f"u(x,y) = Σ_m Σ_n [ A_mn * cos((2m-1)π(x-{x_min})/(2{Lx})) * sin(nπ(y-{y_min})/{Ly}) ]\n"
+                    f"  其中 λ_mn = ((2m-1)π/(2{Lx}))² + (nπ/{Ly})²\n"
+                    f"        A_mn = -4/({Lx}*{Ly}*λ_mn) * ∫∫ f(x,y) * cos((2m-1)π(x-{x_min})/(2{Lx})) * sin(nπ(y-{y_min})/{Ly}) dxdy\n"
+                    f"  前 {N_terms} 项展开为:\n"
+                    + build_expr(A_coeffs, 5)
+                )
             # ---------- 情况 6: 拉普拉斯方程，左/右/下齐次 Dirichlet，上边界非齐次 Dirichlet ----------
             # 方程: u_xx + u_yy = 0 (源项为0)
             # 边界: u(0,y)=0, u(a,y)=0, u(x,0)=0, u(x,b)=g(x)
@@ -1074,7 +1142,13 @@ class AnalyticalSolverHub:
                             den = np.sinh(n * np.pi * Ly / Lx)
                             u += B_n * (num / den) * np.sin(n * np.pi * (xv - x_min) / Lx)
                     return u[0] if scalar else u
-                exact_expr = "u(x,y) = Σ B_n * [sinh(nπy/Lx) / sinh(nπLy/Lx)] * sin(nπx/Lx)"
+                exact_expr = (
+                    f"u(x,y) = Σ [ B_n * sinh(nπ(y-{y_min})/{Lx}) / sinh(nπ{Ly}/{Lx}) * sin(nπ(x-{x_min})/{Lx}) ]\n"
+                    f"  其中 B_n = (2/{Lx}) * ∫₀^{Lx} g(x) * sin(nπ(x-{x_min})/{Lx}) dx\n"
+                    f"        g(x) = u(x, {y_max})  (上边界条件)\n"
+                    f"  前 {N_terms} 项展开为:\n"
+                    + build_expr(B_coeffs, 6)
+                )
         if exact_func is None:
             # ============ 有限差分法（FDM）作为 fallback ============
             # 适用条件：矩形域，任意边界条件（Dirichlet/Neumann 混合）
@@ -1247,8 +1321,10 @@ class AnalyticalSolverHub:
                                 u += A_mn * np.sin(m * np.pi * (xv - x_min) / Lx) * np.sin(n * np.pi * (yv - y_min) / Ly) * np.exp(-(kappa * lambda_mn + beta) * (tv - t_min))
                         return u[0] if scalar else u
                     exact_expr = (
-                        f"u(x,y,t) = \sum\sum A_mn * sin(mπx/{Lx:.2f}) * sin(nπy/{Ly:.2f}) * "
-                        f"e^{(-kappa):.3f}*λ_mn*t, 其中 λ_mn = (mπ/{Lx:.2f})^2 + (nπ/{Ly:.2f})^2"
+                        f"u(x,y,t) = Σ_m Σ_n [ T_mn(t) * sin(mπx/{Lx:.2f}) * sin(nπy/{Ly:.2f}) ]\n"
+                        f"  其中 T_mn(t) = A_mn * exp(-({kappa:.3f} * λ_mn + {beta:.3f}) * t)\n"
+                        f"        λ_mn = (mπ/{Lx:.2f})² + (nπ/{Ly:.2f})²\n"
+                        f"        A_mn = (4/({Lx:.2f}*{Ly:.2f})) * ∫∫ φ(x,y) * sin(mπx/{Lx:.2f}) * sin(nπy/{Ly:.2f}) dxdy"
                     )
             # ---------------- 类型二：二维双曲型薄膜波动方程大类 ----------------
             elif abs(v_tt) > 1e-9 and v_xx == v_yy and abs(v_xx) > 1e-9 and abs(v_xy) < 1e-9:
@@ -1294,8 +1370,12 @@ class AnalyticalSolverHub:
                             u += T_t * np.sin(m * np.pi * (xv - x_min) / Lx) * np.sin(n * np.pi * (yv - y_min) / Ly)
                         return u[0] if scalar else u
                     exact_expr = (
-                        f"u(x,y,t) = \sum\sum T_mn(t) * sin(mπx/{Lx:.2f}) * sin(nπy/{Ly:.2f}), "
-                        f"其中 T_mn(t) 满足 T_mn'' + {gamma:.3f} T_mn' + ({a:.3f}^2*((mπ/{Lx:.2f})^2+(nπ/{Ly:.2f})^2)+{beta:.3f}) T_mn = 0"
+                        f"u(x,y,t) = Σ_m Σ_n [ T_mn(t) * sin(mπx/{Lx:.2f}) * sin(nπy/{Ly:.2f}) ]\n"
+                        f"  其中 T_mn(t) 由初始条件 φ(x,y), ψ(x,y) 确定：\n"
+                        f"        T_mn(0) = (4/({Lx:.2f}*{Ly:.2f})) * ∫∫ φ(x,y) * sin(mπx/{Lx:.2f}) * sin(nπy/{Ly:.2f}) dxdy\n"
+                        f"        T_mn'(0) = (4/({Lx:.2f}*{Ly:.2f})) * ∫∫ ψ(x,y) * sin(mπx/{Lx:.2f}) * sin(nπy/{Ly:.2f}) dxdy\n"
+                        f"        ω_mn = {a:.3f} * sqrt((mπ/{Lx:.2f})² + (nπ/{Ly:.2f})²)\n"
+                        f"        T_mn 满足 T_mn'' + {gamma:.3f}*T_mn' + (ω_mn² + {beta:.3f})*T_mn = 0"
                     )
         # ==================== 二维时空半离散线条法 (Method of Lines, MOL) Fallback ====================
         if not matched_analytical:
@@ -2074,7 +2154,10 @@ if __name__ == "__main__":
             {"side": "right", "type": "dirichlet", "value": "0"}
         ]
     )
-    print(f"  匹配解析解类型: {'是' if result_2_2['exact_expression'] is not None else '否'}")
+    print(f"  精确解表达式: {result_2_2['exact_expression']}")
+    if result_2_2["exact_solution"] is not None:
+        u = result_2_2["exact_solution"](0.5, 0.1)
+        print(f"  u(0.5, 0.1) = {u:.6f} (理论值: {np.exp(-(0.1*np.pi**2+0.5)*0.1)*np.sin(0.5*np.pi):.6f})")
     # ---- 2.3 波动方程: u_tt = u_xx, 两端固定, 初始位移 sin(pi*x) ----
     print("\n[2.3] 一维波动: u_tt = u_xx, u(0,t)=u(1,t)=0, u(x,0)=sin(pi*x), u_t(x,0)=0")
     print("-" * 60)
@@ -2093,6 +2176,9 @@ if __name__ == "__main__":
         ]
     )
     print(f"  精确解表达式: {result_2_3['exact_expression']}")
+    if result_2_3["exact_solution"] is not None:
+        u = result_2_3["exact_solution"](0.5, 0.1)
+        print(f"  u(0.5, 0.1) = {u:.6f} (理论值: {np.sin(0.5*np.pi)*np.cos(0.1*np.pi):.6f})")
     # ---- 2.4 两端 Neumann 热传导: 绝热边界 ----
     print("\n[2.4] 绝热热传导: u_t = 0.1*u_xx, u_x(0,t)=u_x(1,t)=0, u(x,0)=cos(pi*x)")
     print("-" * 60)
@@ -2109,7 +2195,10 @@ if __name__ == "__main__":
             {"side": "right", "type": "neumann", "value": "0"}
         ]
     )
-    print(f"  匹配解析解类型: {'是' if result_2_4['exact_expression'] is not None else '否'}")
+    print(f"  精确解表达式: {result_2_4['exact_expression']}")
+    if result_2_4["exact_solution"] is not None:
+        u = result_2_4["exact_solution"](0.5, 0.1)
+        print(f"  u(0.5, 0.1) = {u:.6f} (理论值: {np.cos(0.5*np.pi)*np.exp(-0.1*np.pi**2*0.1):.6f})")
     # =========================================================================
     # 第三层：二维稳态 PDE (dimension=2, has_t=False)
     # =========================================================================
@@ -2244,7 +2333,10 @@ if __name__ == "__main__":
             {"side": "top", "type": "dirichlet", "value": "0"}
         ]
     )
-    print(f"  匹配解析解类型: {'是' if result_4_2['exact_expression'] is not None else '否'}")
+    print(f"  精确解表达式: {result_4_2['exact_expression']}")
+    if result_4_2["exact_solution"] is not None:
+        u = result_4_2["exact_solution"](0.5, 0.5, 0.1)
+        print(f"  u(0.5, 0.5, 0.1) = {u:.6f}")
     # ---- 4.3 任意初始条件的二维热传导 (fallback 到 MOL) ----
     print("\n[4.3] 任意初始条件: u_t = 0.1*(u_xx + u_yy), u(x,y,0)=sin(2*pi*x)*cos(pi*y)")
     print("-" * 60)
@@ -2265,16 +2357,12 @@ if __name__ == "__main__":
     )
     # 初始条件不匹配四边齐次Dirichlet的级数形式 → fallback到MOL
     print(f"  精确解表达式: {result_4_3['exact_expression']}")
-    print(f"  exact_solution 可用: {result_4_3['exact_solution'] is not None}")
-    print(f"  说明: 初始条件不匹配级数解，自动 fallback 到 MOL 数值解法")
     if result_4_3["exact_solution"] is not None:
         print_exact_values(
             result_4_3["exact_solution"],
             [(0.25, 0.25, 0.05), (0.5, 0.25, 0.05), (0.25, 0.5, 0.1), (0.5, 0.5, 0.1), (0.75, 0.75, 0.2)],
             ["(0.25,0.25,0.05)", "(0.5,0.25,0.05)", "(0.25,0.5,0.1)", "(0.5,0.5,0.1)", "(0.75,0.75,0.2)"]
         )
-    else:
-        print("  MOL 数值求解失败")
     # =========================================================================
     # 汇总
     # =========================================================================

@@ -646,8 +646,8 @@ class PreviewLabel(QTextEdit):
         self.default_font_size = font_size
         self._current_text = ""
         self._current_html = ""
-        ThemeManager.instance().theme_changed.connect(lambda _: self._apply_style(font_size))
-        QTimer.singleShot(0, lambda: self._apply_style(font_size))
+        ThemeManager.instance().theme_changed.connect(lambda _: self._apply_style(self.default_font_size))
+        QTimer.singleShot(0, lambda: self._apply_style(self.default_font_size))
     def _apply_style(self, size: int):
         """应用样式到当前文本"""
         theme = ThemeManager.instance().current
@@ -662,78 +662,86 @@ class PreviewLabel(QTextEdit):
                 padding: 4px 8px;
             }}
         """)
-    def set_color(self, color_hex: str):
-        """更新文字颜色"""
-        self.default_text_color = color_hex
-        self._apply_style(self.default_font_size)
-        if self._current_html:
-            self.setHtml(self._current_html)
-        elif self._current_text:
-            self.setText(self._current_text)
-    def set_latex(self, latex_str: str):
-        """设置显示文本，实际不做 LaTeX 转换。"""
-        if latex_str is None:
-            latex_str = ""
-        self._current_text = latex_str
-        if latex_str.strip().startswith('<') and ('</' in latex_str or '<br' in latex_str.lower()):
-            self._current_html = latex_str
-            self.setHtml(latex_str)
+        if self._current_text:
+            self._render_text(self._current_text)
+    def _render_text(self, text: str):
+        if not text:
+            self.setText("")
             return
-        text = latex_str
-        text = text.replace('&', '&amp;')
-        text = text.replace('<', '&lt;')
-        text = text.replace('>', '&gt;')
-        unicode_map = {
+        html = self._convert_to_html(text)
+        self.setHtml(html)
+    def _convert_to_html(self, text: str) -> str:
+        # 1. 转义
+        text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        lines = text.split('\n')
+        text = '<br>'.join(lines)
+        text = re.sub(r' {2,}', lambda m: '&nbsp;' * len(m.group()), text)
+        # 2. 符号映射
+        symbols = {
             r'\alpha': 'α', r'\beta': 'β', r'\gamma': 'γ', r'\delta': 'δ',
             r'\epsilon': 'ε', r'\zeta': 'ζ', r'\eta': 'η', r'\theta': 'θ',
-            r'\iota': 'ι', r'\kappa': 'κ', r'\lambda': 'λ', r'\mu': 'μ',
-            r'\nu': 'ν', r'\xi': 'ξ', r'\omicron': 'ο', r'\pi': 'π',
-            r'\rho': 'ρ', r'\sigma': 'σ', r'\tau': 'τ', r'\upsilon': 'υ',
-            r'\phi': 'φ', r'\chi': 'χ', r'\psi': 'ψ', r'\omega': 'ω',
+            r'\lambda': 'λ', r'\mu': 'μ', r'\pi': 'π', r'\rho': 'ρ',
+            r'\sigma': 'σ', r'\tau': 'τ', r'\phi': 'φ', r'\chi': 'χ',
+            r'\psi': 'ψ', r'\omega': 'ω',
             r'\Gamma': 'Γ', r'\Delta': 'Δ', r'\Theta': 'Θ', r'\Lambda': 'Λ',
             r'\Xi': 'Ξ', r'\Pi': 'Π', r'\Sigma': 'Σ', r'\Upsilon': 'Υ',
             r'\Phi': 'Φ', r'\Psi': 'Ψ', r'\Omega': 'Ω',
             r'\infty': '∞', r'\partial': '∂', r'\nabla': '∇',
-            r'\sum': 'Σ', r'\int': '∫', r'\oint': '∮',
-            r'\prod': 'Π', r'\sqrt': '√',
             r'\rightarrow': '→', r'\leftarrow': '←',
-            r'\Rightarrow': '⇒', r'\Leftarrow': '⇐',
-            r'\leftrightarrow': '↔', r'\Leftrightarrow': '⇔',
-            r'\times': '×', r'\cdot': '·', r'\pm': '±', r'\mp': '∓',
+            r'\times': '×', r'\cdot': '·', r'\pm': '±',
             r'\neq': '≠', r'\leq': '≤', r'\geq': '≥', r'\approx': '≈',
             r'\equiv': '≡', r'\propto': '∝',
             r'\forall': '∀', r'\exists': '∃', r'\emptyset': '∅',
-            r'\in': '∈', r'\notin': '∉', r'\subset': '⊂', r'\supset': '⊃',
+            r'\in': '∈', r'\notin': '∉',
             r'\cup': '∪', r'\cap': '∩',
-            r'\prime': '′', r'\doubleprime': '″',
             r'\text': '', r'\mathrm': '', r'\mathbf': '',
             r'\left': '', r'\right': '',
         }
-        for cmd, uni in unicode_map.items():
+        for cmd, uni in symbols.items():
             text = text.replace(cmd, uni)
+        # 3. 求和/积分上下限
+        text = re.sub(r'\\sum_\{([^}]*)\}\^\{([^}]*)\}', r'Σ<sub>\1</sub><sup>\2</sup>', text)
+        text = re.sub(r'\\int_\{([^}]*)\}\^\{([^}]*)\}', r'∫<sub>\1</sub><sup>\2</sup>', text)
+        text = text.replace(r'\sum', 'Σ').replace(r'\int', '∫')
+        # 4. 分数（循环处理嵌套）
         def convert_frac(match):
             num = match.group(1).strip('{}')
             den = match.group(2).strip('{}')
             return f"({num})/({den})"
-        text = re.sub(r'\\frac\{([^}]*)\}\{([^}]*)\}', convert_frac, text)
+        for _ in range(10):
+            if r'\frac' not in text:
+                break
+            text = re.sub(r'\\frac\{([^}]*)\}\{([^}]*)\}', convert_frac, text)
+        # 5. 函数名
+        funcs = ['sin', 'cos', 'tan', 'cot', 'sec', 'csc',
+                'sinh', 'cosh', 'tanh', 'coth',
+                'arcsin', 'arccos', 'arctan',
+                'log', 'ln', 'lg', 'exp', 'sqrt', 'max', 'min']
+        for func in funcs:
+            text = text.replace(r'\\' + func, func)
+        # 6. 上下标
         text = re.sub(r'(\w+?)_\{([^}]*)\}', r'\1<sub>\2</sub>', text)
         text = re.sub(r'(\w+?)_(\w+)', r'\1<sub>\2</sub>', text)
         text = re.sub(r'(\w+?)\^\{([^}]*)\}', r'\1<sup>\2</sup>', text)
         text = re.sub(r'(\w+?)\^(\w+)', r'\1<sup>\2</sup>', text)
-        def clean_braces(match):
+        # 7. 清理大括号
+        def remove_braces(match):
             content = match.group(1)
             if '<' in content and '>' in content:
                 return f"{{{content}}}"
             return content
-        text = re.sub(r'\{([^{}]*)\}', clean_braces, text)
-        func_names = ['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'sinh', 'cosh', 'tanh', 'coth', 'arcsin', 'arccos', 'arctan', 
-                      'log', 'ln', 'lg', 'exp', 'sqrt', 'max', 'min', 'sup', 'inf', 'lim']
-        text = re.sub(r'\\sum_\{([^}]*)\}\^\{([^}]*)\}', r'Σ<sub>\1</sub><sup>\2</sup>', text)
-        text = re.sub(r'\\int_\{([^}]*)\}\^\{([^}]*)\}', r'∫<sub>\1</sub><sup>\2</sup>', text)
+        text = re.sub(r'\{([^{}]*)\}', remove_braces, text)
+        # 8. 清理空格并包装
         text = re.sub(r'\s+', ' ', text).strip()
-        html = f'<span style="font-family: \'Times New Roman\', \'Microsoft YaHei\', sans-serif;">{text}</span>'
-        self._current_html = html
-        self.setHtml(html)
+        return f'<span style="font-family: \'Times New Roman\', \'Microsoft YaHei\', sans-serif;">{text}</span>'
+    def set_color(self, color_hex: str):
+        self._apply_style(self.default_font_size)
+    def set_latex(self, text: str):
+        """设置显示文本，实际不做 LaTeX 转换。"""
+        if text is None:
+            text = ""
+        self._current_text = str(text)
+        self._render_text(self._current_text)
 
 class SolverThread(QThread):
     """

@@ -1,13 +1,10 @@
 # ui/pages/equation_input_page.py
-import sympy as sp
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QLabel, QPushButton,
-    QListWidget, QTextEdit, QLineEdit, QMessageBox, QSpinBox, QDialog,
-    QFormLayout, QDialogButtonBox, QGroupBox, QSizePolicy
+    QLineEdit, QMessageBox, QSpinBox, QGroupBox, QSizePolicy
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtCore import Qt, pyqtSignal
 from .base_widgets import ClearableListWidget, InputPage, PreviewLabel
-# from src import *
 
 class PinnInputPage(InputPage):
     """第一步：输入方程与定解条件页"""
@@ -141,17 +138,13 @@ class PinnInputPage(InputPage):
 
     def proceed_to_next_step(self):
         """校验条件，构建标准配置字典并传递给下一页"""
-        # 1. 基础校验：检查是否配置了方程项
         if not self.terms:
             QMessageBox.warning(self, "警告", "条件不齐全：请先至少添加一项方程系数！")
             return
-
         p_type = self.type_combo.currentText()
         order = self.order_spin.value()
         dimension = 1 if "1D" in p_type else 2
         has_t = "含时" in p_type
-
-        # ========== 读取定义域 ==========
         try:
             x_min = float(self.x_min_input.text().strip() or "0")
             x_max = float(self.x_max_input.text().strip() or "1")
@@ -162,7 +155,6 @@ class PinnInputPage(InputPage):
             QMessageBox.warning(self, "错误", "x 范围必须为有效数字！")
             return
         domain = {"x": [x_min, x_max]}
-
         if dimension == 2:
             try:
                 y_min = float(self.y_min_input.text().strip() or "0")
@@ -174,7 +166,6 @@ class PinnInputPage(InputPage):
             except ValueError:
                 QMessageBox.warning(self, "错误", "y 范围必须为有效数字！")
                 return
-
         if has_t:
             try:
                 t_min = float(self.t_min_input.text().strip() or "0")
@@ -186,19 +177,13 @@ class PinnInputPage(InputPage):
             except ValueError:
                 QMessageBox.warning(self, "错误", "t 范围必须为有效数字！")
                 return
-
-        # ========== 构建 coeffs（格式与 gui_test.py 完全一致） ==========
         if dimension == 1 and not has_t:
-            # 1D 稳态 → list，按阶数从低到高
             coeffs_param = [0.0] * (order + 1)
             for d in range(order + 1):
                 key = "u" if d == 0 else "u" + "'" * d
                 coeffs_param[d] = self.terms.get(key, 0.0)
         else:
-            # PDE 分支 → dict 原样传递
             coeffs_param = self.terms.copy()
-
-        # ========== 校验条件数量 ==========
         if dimension == 1 and not has_t:
             if len(self.conditions) != order:
                 QMessageBox.warning(self, "警告", f"1D 稳态需要恰好 {order} 个定解条件！")
@@ -222,7 +207,6 @@ class PinnInputPage(InputPage):
                     QMessageBox.warning(self, "错误", 
                         f"二维稳态仅支持 u_xx 和 u_yy 项，不能包含 '{key}'")
                     return
-            # u_xx 和 u_yy 必须都存在
             if "u_xx" not in self.terms or "u_yy" not in self.terms:
                 QMessageBox.warning(self, "错误", "二维稳态需要同时包含 u_xx 和 u_yy 两项")
                 return
@@ -235,7 +219,6 @@ class PinnInputPage(InputPage):
                     return
             except ValueError:
                 pass
-        # ========== 构建标准配置字典 ==========
         config = {
             "dimension": dimension,
             "order": order,
@@ -245,6 +228,4 @@ class PinnInputPage(InputPage):
             "domain": domain,
             "condition": self.conditions.copy(),
         }
-
-        # ========== 直接发射配置信号（不进行任何求解） ==========
         self.equation_configured.emit(config)

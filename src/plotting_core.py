@@ -38,36 +38,59 @@ def _safe_call_exact_func(exact_func, pts):
         numpy.ndarray (N,) 或 (N, 1)
     """
     if exact_func is None: return None
-    # 先尝试张量调用
+    def _to_float_array(arr):
+        if arr is None:
+            return None
+        if isinstance(arr, np.ndarray):
+            if arr.dtype == object:
+                try:
+                    return np.array([float(v) if hasattr(v, 'evalf') else float(v) for v in arr.flatten()])
+                except Exception:
+                    try:
+                        return np.array([float(v.evalf()) if hasattr(v, 'evalf') else float(v) for v in arr.flatten()])
+                    except Exception:
+                        return None
+            return arr
+        if torch.is_tensor(arr):
+            return arr.detach().cpu().numpy().flatten()
+        try:
+            return np.array([float(arr)])
+        except Exception:
+            return None
     try:
         result = exact_func(pts)
-        if torch.is_tensor(result): return result.detach().cpu().numpy().flatten()
-        if isinstance(result, np.ndarray): return result.flatten()
-        # 如果是标量（说明 exact_func 只接受单个点）
-        return np.asarray(result).flatten()
+        converted = _to_float_array(result)
+        if converted is not None:
+            return converted.flatten()
     except Exception:
         pass
-    # 张量调用失败，尝试转换为 numpy 调用
     try:
         pts_np = pts.detach().cpu().numpy()
         result = exact_func(pts_np)
-        if torch.is_tensor(result): return result.detach().cpu().numpy().flatten()
-        if isinstance(result, np.ndarray): return result.flatten()
-        return np.asarray(result).flatten()
+        converted = _to_float_array(result)
+        if converted is not None:
+            return converted.flatten()
     except Exception:
         pass
-    # numpy 调用也失败，回退到逐元素调用
     n = pts.shape[0]
     results = []
     for i in range(n):
         pt_i = pts[i].detach().cpu().numpy()
-        try: val = exact_func(pt_i)
+        try:
+            val = exact_func(pt_i)
         except Exception:
-            # 如果传入数组失败，尝试传入标量
-            if pt_i.ndim == 1 and len(pt_i) == 1: val = exact_func(pt_i[0])
-            else: val = exact_func(*pt_i)
-        results.append(float(val))
-    return np.asarray(results)
+            if pt_i.ndim == 1 and len(pt_i) == 1:
+                val = exact_func(pt_i[0])
+            else:
+                val = exact_func(*pt_i)
+        try:
+            if hasattr(val, 'evalf'):
+                results.append(float(val.evalf()))
+            else:
+                results.append(float(val))
+        except Exception:
+            results.append(np.nan)
+    return np.asarray(results).flatten()
 def _to_numpy(x):
     """将 torch.Tensor 或 numpy 数组转为 numpy 数组"""
     if torch.is_tensor(x):

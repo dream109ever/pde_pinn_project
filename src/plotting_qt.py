@@ -11,7 +11,7 @@ PINN 求解器 Qt 可视化控件模块
 
 import torch
 import numpy as np
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QPushButton
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QPushButton, QTabWidget
 from PyQt5.QtCore import Qt
 import matplotlib
 import matplotlib.pyplot as plt
@@ -74,10 +74,6 @@ class Steady1DPlotWidget(QWidget):
       * 'overlay': 叠加切换 (通过左上角按钮切换显示预测或误差)
     """
     def __init__(self, parent=None, mode: str = 'horizontal'):
-        """
-        参数:
-            mode: 'horizontal' | 'vertical' | 'overlay'
-        """
         super().__init__(parent)
         self.mode = mode
         self._overlay_state = 0  # 0: 显示预测, 1: 显示误差
@@ -88,73 +84,71 @@ class Steady1DPlotWidget(QWidget):
         # 布局：画布 + 控制栏
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        # 控制栏（仅 overlay 模式显示）
-        self.control_layout = QHBoxLayout()
-        self.control_layout.setContentsMargins(5, 2, 5, 2)
-        self.switch_btn = QPushButton("切换到误差图")
-        self.switch_btn.setFixedWidth(120)
-        self.switch_btn.setVisible(False)
-        self.switch_btn.clicked.connect(self._toggle_overlay)
-        self.state_label = QLabel("当前: 预测解")
-        self.state_label.setStyleSheet("font-size: 10px; color: gray;")
-        self.state_label.setVisible(False)
-        self.control_layout.addStretch()
-        self.control_layout.addWidget(self.switch_btn)
-        self.control_layout.addWidget(self.state_label)
-        self.control_layout.addStretch()
-        main_layout.addLayout(self.control_layout)
-        main_layout.addWidget(self.canvas)
-    def _toggle_overlay(self):
-        """切换 overlay 显示状态"""
-        if not self._has_true:
-            return
-        self._overlay_state = 1 - self._overlay_state
-        self._update_overlay_display()
-    def _update_overlay_display(self):
-        """更新 overlay 模式的显示"""
+        # overlay 模式使用 QTabWidget
+        if self.mode == 'overlay':
+            self.tab_widget = QTabWidget()
+            self.tab_widget.setVisible(True)
+            # 标签页1: 预测解
+            self.pred_figure = Figure(figsize=(10, 4.5))
+            self.pred_canvas = FigureCanvasQTAgg(self.pred_figure)
+            self.pred_ax = self.pred_figure.add_subplot(111)
+            self.tab_widget.addTab(self.pred_canvas, "预测解")
+            # 标签页2: 误差图
+            self.err_figure = Figure(figsize=(10, 4.5))
+            self.err_canvas = FigureCanvasQTAgg(self.err_figure)
+            self.err_ax = self.err_figure.add_subplot(111)
+            self.tab_widget.addTab(self.err_canvas, "误差图")
+            main_layout.addWidget(self.tab_widget)
+        else:
+            main_layout.addWidget(self.canvas)
+    def _update_overlay_display_tab(self):
+        """overlay 模式：分别更新两个标签页"""
         if self._current_data is None:
             return
         data = self._current_data
         x = data['x']
         u_pred = data['u_pred']
         u_true = data['u_true']
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        if self._overlay_state == 0:
-            if u_pred is not None:
-                ax.plot(x, u_pred, 'b-', label='PINN Prediction', linewidth=2)
-            if u_true is not None:
-                ax.plot(x, u_true, 'r--', label='Exact Solution', linewidth=2)
-            ax.set_title('1D Prediction vs Exact Solution', fontsize=11, fontweight='bold')
-            ax.legend()
-            self.switch_btn.setText("切换到误差图")
-            self.state_label.setText("当前: 预测解")
+        # --- 标签页1: 预测解 ---
+        self.pred_ax.clear()
+        if u_pred is not None:
+            self.pred_ax.plot(x, u_pred, 'b-', label='PINN Prediction', linewidth=2)
+        if u_true is not None:
+            self.pred_ax.plot(x, u_true, 'r--', label='Exact Solution', linewidth=2)
+        self.pred_ax.set_title('1D Prediction vs Exact Solution', fontsize=11, fontweight='bold')
+        self.pred_ax.set_xlabel('x')
+        self.pred_ax.set_ylabel('u(x)')
+        if u_pred is not None or u_true is not None:
+            self.pred_ax.legend()
+        self.pred_ax.grid(True, alpha=0.3)
+        self.pred_figure.tight_layout()
+        self.pred_canvas.draw()
+        # --- 标签页2: 误差图 ---
+        self.err_ax.clear()
+        if u_true is not None and u_pred is not None:
+            abs_err = np.abs(u_pred - u_true)
+            self.err_ax.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=2)
+            self.err_ax.fill_between(x, abs_err, color='magenta', alpha=0.15)
+            l2_rel_err = np.linalg.norm(u_pred - u_true) / (np.linalg.norm(u_true) + 1e-8)
+            text_str = (
+                "$\mathbf{Global\ Metrics}$\n"
+                f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
+                f"• Max Abs Error: {abs_err.max():.3e}\n"
+                f"• Mean Abs Error: {abs_err.mean():.3e}"
+            )
+            self.err_ax.text(0.04, 0.96, text_str, transform=self.err_ax.transAxes, fontsize=9,
+                            verticalalignment='top', horizontalalignment='left',
+                            bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.88, edgecolor='#cccccc'))
+            self.err_ax.set_title('1D Absolute Error Distribution', fontsize=11, fontweight='bold')
+            self.err_ax.set_ylabel('$|u_{pred} - u_{true}|$')
+            self.err_ax.legend()
         else:
-            if u_true is not None and u_pred is not None:
-                abs_err = np.abs(u_pred - u_true)
-                ax.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=2)
-                ax.fill_between(x, abs_err, color='magenta', alpha=0.15)
-                l2_rel_err = np.linalg.norm(u_pred - u_true) / (np.linalg.norm(u_true) + 1e-8)
-                text_str = (
-                    "$\mathbf{Global\ Metrics}$\n"
-                    f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
-                    f"• Max Abs Error: {abs_err.max():.3e}\n"
-                    f"• Mean Abs Error: {abs_err.mean():.3e}"
-                )
-                ax.text(0.04, 0.96, text_str, transform=ax.transAxes, fontsize=9,
-                        verticalalignment='top', horizontalalignment='left',
-                        bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.88, edgecolor='#cccccc'))
-                ax.set_title('1D Absolute Error Distribution', fontsize=11, fontweight='bold')
-                ax.set_ylabel('$|u_{pred} - u_{true}|$')
-            else:
-                ax.text(0.5, 0.5, "无误差数据", ha='center', va='center')
-                ax.set_title('1D Error (No data)')
-            ax.grid(True, alpha=0.3)
-            self.switch_btn.setText("切换到预测解")
-            self.state_label.setText("当前: 误差图")
-        ax.set_xlabel('x')
-        self.figure.tight_layout()
-        self.canvas.draw()
+            self.err_ax.text(0.5, 0.5, "无误差数据", ha='center', va='center')
+            self.err_ax.set_title('1D Error (No data)')
+        self.err_ax.set_xlabel('x')
+        self.err_ax.grid(True, alpha=0.3)
+        self.err_figure.tight_layout()
+        self.err_canvas.draw()
     def set_data(
         self,
         model: Optional[torch.nn.Module] = None,
@@ -175,14 +169,8 @@ class Steady1DPlotWidget(QWidget):
         self._has_true = (u_true is not None)
         # 判断显示模式
         if self.mode == 'overlay':
-            self.switch_btn.setVisible(True)
-            self.state_label.setVisible(True)
-            self._overlay_state = 0
-            self._update_overlay_display()
+            self._update_overlay_display_tab()
             return
-        # Horizontal / Vertical 模式
-        self.switch_btn.setVisible(False)
-        self.state_label.setVisible(False)
         if u_true is not None and u_pred is not None:
             if self.mode == 'horizontal':
                 ax1 = self.figure.add_subplot(1, 2, 1)
@@ -267,34 +255,46 @@ class Transient1DPlotWidget(QWidget):
         # 控制栏
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        control_bar = QHBoxLayout()
-        control_bar.setContentsMargins(5, 2, 5, 2)
-        self.switch_btn = QPushButton("切换到误差图")
-        self.switch_btn.setFixedWidth(120)
-        self.switch_btn.setVisible(False)
-        self.switch_btn.clicked.connect(self._toggle_overlay)
-        self.state_label = QLabel("当前: 预测解")
-        self.state_label.setStyleSheet("font-size: 10px; color: gray;")
-        self.state_label.setVisible(False)
-        self.label = QLabel("Time (t): 0.000")
-        self.label.setStyleSheet("font-weight: bold; font-size: 12px;")
-        self.slider = QSlider(Qt.Horizontal)
-        self.slider.setRange(0, 100)
-        self.slider.setValue(0)
-        self.slider.valueChanged.connect(self._on_slider_changed)
-        control_bar.addWidget(self.label)
-        control_bar.addStretch()
-        control_bar.addWidget(self.switch_btn)
-        control_bar.addWidget(self.state_label)
-        main_layout.addLayout(control_bar)
-        main_layout.addWidget(self.canvas)
-        slider_layout = QHBoxLayout()
-        slider_layout.addWidget(self.slider)
-        main_layout.addLayout(slider_layout)
-    def _toggle_overlay(self):
-        self._overlay_state = 1 - self._overlay_state
-        self._update_overlay_display()
-    def _update_overlay_display(self):
+        if self.mode == 'overlay':
+            # overlay 模式：使用 QTabWidget
+            self.tab_widget = QTabWidget()
+            self.tab_widget.setVisible(True)
+            # 标签页1：预测解
+            self.pred_figure = Figure(figsize=(10, 4.5))
+            self.pred_canvas = FigureCanvasQTAgg(self.pred_figure)
+            self.pred_ax = self.pred_figure.add_subplot(111)
+            self.tab_widget.addTab(self.pred_canvas, "预测解")
+            # 标签页2：误差图
+            self.err_figure = Figure(figsize=(10, 4.5))
+            self.err_canvas = FigureCanvasQTAgg(self.err_figure)
+            self.err_ax = self.err_figure.add_subplot(111)
+            self.tab_widget.addTab(self.err_canvas, "误差图")
+            main_layout.addWidget(self.tab_widget)
+            # 时间滑块（overlay 模式下也要有）
+            self.label = QLabel("Time (t): 0.000")
+            self.label.setStyleSheet("font-weight: bold; font-size: 12px;")
+            self.slider = QSlider(Qt.Horizontal)
+            self.slider.setRange(0, 100)
+            self.slider.setValue(0)
+            self.slider.valueChanged.connect(self._on_slider_changed)
+            slider_layout = QHBoxLayout()
+            slider_layout.addWidget(self.label)
+            slider_layout.addWidget(self.slider)
+            main_layout.addLayout(slider_layout)
+        else:
+            self.label = QLabel("Time (t): 0.000")
+            self.label.setStyleSheet("font-weight: bold; font-size: 12px;")
+            self.slider = QSlider(Qt.Horizontal)
+            self.slider.setRange(0, 100)
+            self.slider.setValue(0)
+            self.slider.valueChanged.connect(self._on_slider_changed)
+            main_layout.addWidget(self.canvas)
+            slider_layout = QHBoxLayout()
+            slider_layout.addWidget(self.label)
+            slider_layout.addWidget(self.slider)
+            main_layout.addLayout(slider_layout)
+    def _update_overlay_display_tab(self):
+        """overlay 模式：分别更新两个标签页"""
         if self._current_data is None:
             return
         data = self._current_data
@@ -302,45 +302,46 @@ class Transient1DPlotWidget(QWidget):
         u_pred = data['u_pred']
         u_true = data['u_true']
         t_val = data.get('t_val', 0.0)
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        if self._overlay_state == 0:
-            # 显示预测 vs 真实
-            if u_pred is not None:
-                ax.plot(x, u_pred, 'b-', label=f'PINN (t={t_val:.3f})', linewidth=2)
-            if u_true is not None:
-                ax.plot(x, u_true, 'r--', label='Exact', linewidth=2)
-            ax.set_title(f'1D Profile (t = {t_val:.3f})', fontsize=11, fontweight='bold')
-            ax.legend()
-            self.switch_btn.setText("切换到误差图")
-            self.state_label.setText("当前: 预测解")
+        # --- 标签页1: 预测解 ---
+        self.pred_ax.clear()
+        if u_pred is not None:
+            self.pred_ax.plot(x, u_pred, 'b-', label=f'PINN (t={t_val:.3f})', linewidth=2)
+        if u_true is not None:
+            self.pred_ax.plot(x, u_true, 'r--', label='Exact', linewidth=2)
+        self.pred_ax.set_title(f'1D Profile (t = {t_val:.3f})', fontsize=11, fontweight='bold')
+        self.pred_ax.set_xlabel('x')
+        self.pred_ax.set_ylabel('u(x, t)')
+        if u_pred is not None or u_true is not None:
+            self.pred_ax.legend()
+        self.pred_ax.grid(True, alpha=0.3)
+        self.pred_figure.tight_layout()
+        self.pred_canvas.draw()
+        # --- 标签页2: 误差图 ---
+        self.err_ax.clear()
+        if u_true is not None and u_pred is not None:
+            abs_err = np.abs(u_pred - u_true)
+            self.err_ax.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=2)
+            self.err_ax.fill_between(x, abs_err, color='magenta', alpha=0.15)
+            l2_rel_err = np.linalg.norm(u_pred - u_true) / (np.linalg.norm(u_true) + 1e-8)
+            text_str = (
+                f"$\mathbf{{Metrics\ at\ t={t_val:.3f}}}$\n"
+                f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
+                f"• Max Abs Error: {abs_err.max():.3e}\n"
+                f"• Mean Abs Error: {abs_err.mean():.3e}"
+            )
+            self.err_ax.text(0.04, 0.96, text_str, transform=self.err_ax.transAxes, fontsize=9,
+                            verticalalignment='top', horizontalalignment='left',
+                            bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.88, edgecolor='#cccccc'))
+            self.err_ax.set_title(f'1D Absolute Error (t = {t_val:.3f})', fontsize=11, fontweight='bold')
+            self.err_ax.set_ylabel('$|u_{pred} - u_{true}|$')
+            self.err_ax.legend()
         else:
-            # 显示误差
-            if u_true is not None and u_pred is not None:
-                abs_err = np.abs(u_pred - u_true)
-                ax.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=2)
-                ax.fill_between(x, abs_err, color='magenta', alpha=0.15)
-                l2_rel_err = np.linalg.norm(u_pred - u_true) / (np.linalg.norm(u_true) + 1e-8)
-                text_str = (
-                    f"$\mathbf{{Metrics\ at\ t={t_val:.3f}}}$\n"
-                    f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
-                    f"• Max Abs Error: {abs_err.max():.3e}\n"
-                    f"• Mean Abs Error: {abs_err.mean():.3e}"
-                )
-                ax.text(0.04, 0.96, text_str, transform=ax.transAxes, fontsize=9,
-                        verticalalignment='top', horizontalalignment='left',
-                        bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.88, edgecolor='#cccccc'))
-                ax.set_title(f'1D Absolute Error (t = {t_val:.3f})', fontsize=11, fontweight='bold')
-                ax.set_ylabel('$|u_{pred} - u_{true}|$')
-            else:
-                ax.text(0.5, 0.5, "无误差数据", ha='center', va='center')
-                ax.set_title('1D Error (No data)')
-            ax.grid(True, alpha=0.3)
-            self.switch_btn.setText("切换到预测解")
-            self.state_label.setText("当前: 误差图")
-        ax.set_xlabel('x')
-        self.figure.tight_layout()
-        self.canvas.draw()
+            self.err_ax.text(0.5, 0.5, "无误差数据", ha='center', va='center')
+            self.err_ax.set_title('1D Error (No data)')
+        self.err_ax.set_xlabel('x')
+        self.err_ax.grid(True, alpha=0.3)
+        self.err_figure.tight_layout()
+        self.err_canvas.draw()
     def set_data(self, model=None, x_range=(0, 1), t_range=(0, 1),
                  exact_func=None, true_func=None, n_points=200):
         self.model = model
@@ -368,13 +369,8 @@ class Transient1DPlotWidget(QWidget):
         u_true = data['u_true']
         self._has_true = (u_true is not None)
         if self.mode == 'overlay':
-            self.switch_btn.setVisible(True)
-            self.state_label.setVisible(True)
-            self._overlay_state = 0
-            self._update_overlay_display()
+            self._update_overlay_display_tab()
             return
-        self.switch_btn.setVisible(False)
-        self.state_label.setVisible(False)
         if u_true is not None and u_pred is not None:
             if self.mode == 'horizontal':
                 ax1 = self.figure.add_subplot(1, 2, 1)
@@ -450,73 +446,68 @@ class Steady2DPlotWidget(QWidget):
         self.canvas = FigureCanvasQTAgg(self.figure)
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        control_bar = QHBoxLayout()
-        control_bar.setContentsMargins(5, 2, 5, 2)
-        self.switch_btn = QPushButton("切换到误差图")
-        self.switch_btn.setFixedWidth(120)
-        self.switch_btn.setVisible(False)
-        self.switch_btn.clicked.connect(self._toggle_overlay)
-        self.state_label = QLabel("当前: 预测解")
-        self.state_label.setStyleSheet("font-size: 10px; color: gray;")
-        self.state_label.setVisible(False)
-        control_bar.addStretch()
-        control_bar.addWidget(self.switch_btn)
-        control_bar.addWidget(self.state_label)
-        control_bar.addStretch()
-        main_layout.addLayout(control_bar)
-        main_layout.addWidget(self.canvas)
-    def _toggle_overlay(self):
-        self._overlay_state = 1 - self._overlay_state
-        self._update_overlay_display()
-    def _update_overlay_display(self):
+        if self.mode == 'overlay':
+            # overlay 模式：使用 QTabWidget
+            self.tab_widget = QTabWidget()
+            self.tab_widget.setVisible(True)
+            # 标签页1：预测解（3D 曲面）
+            self.pred_figure = Figure(figsize=(11, 5))
+            self.pred_canvas = FigureCanvasQTAgg(self.pred_figure)
+            self.pred_ax = self.pred_figure.add_subplot(111, projection='3d')
+            self.tab_widget.addTab(self.pred_canvas, "预测解")
+            # 标签页2：误差图（2D 云图）
+            self.err_figure = Figure(figsize=(11, 5))
+            self.err_canvas = FigureCanvasQTAgg(self.err_figure)
+            self.err_ax = self.err_figure.add_subplot(111)
+            self.tab_widget.addTab(self.err_canvas, "误差图")
+            main_layout.addWidget(self.tab_widget)
+        else:
+            main_layout.addWidget(self.canvas)
+    def _update_overlay_display_tab(self):
+        """overlay 模式：分别更新两个标签页"""
         if self._current_data is None:
             return
         data = self._current_data
         X, Y = data['X'], data['Y']
         Z_pred = data['Z_pred']
         Z_true = data['Z_true']
-        self.figure.clear()
-        if self._overlay_state == 0:
-            # 显示 3D 预测曲面
-            ax = self.figure.add_subplot(111, projection='3d')
-            surf = ax.plot_surface(X, Y, Z_pred, cmap='viridis', edgecolor='none', alpha=0.95) if Z_pred is not None else None
-            if surf:
-                self.figure.colorbar(surf, ax=ax, shrink=0.5, aspect=10, pad=0.08)
-            ax.set_title('3D Predicted Solution $u_{pred}(x, y)$', fontsize=11, fontweight='bold')
-            ax.set_xlabel('X')
-            ax.set_ylabel('Y')
-            ax.set_zlabel('u')
-            ax.view_init(elev=30, azim=-60)
-            self.switch_btn.setText("切换到误差图")
-            self.state_label.setText("当前: 预测解")
+        # --- 标签页1: 预测解 (3D 曲面) ---
+        self.pred_ax.clear()
+        if Z_pred is not None:
+            surf = self.pred_ax.plot_surface(X, Y, Z_pred, cmap='viridis', edgecolor='none', alpha=0.95)
+            self.pred_figure.colorbar(surf, ax=self.pred_ax, shrink=0.5, aspect=10, pad=0.08)
+        self.pred_ax.set_title('3D Predicted Solution $u_{pred}(x, y)$', fontsize=11, fontweight='bold')
+        self.pred_ax.set_xlabel('X')
+        self.pred_ax.set_ylabel('Y')
+        self.pred_ax.set_zlabel('u')
+        self.pred_ax.view_init(elev=30, azim=-60)
+        self.pred_figure.tight_layout()
+        self.pred_canvas.draw()
+        # --- 标签页2: 误差图 (2D 云图) ---
+        self.err_ax.clear()
+        if Z_pred is not None and Z_true is not None:
+            abs_err = np.abs(Z_pred - Z_true)
+            cf = self.err_ax.contourf(X, Y, abs_err, levels=50, cmap='inferno')
+            self.err_figure.colorbar(cf, ax=self.err_ax, label='Absolute Error $|u_{pred} - u_{true}|$')
+            l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
+            text_str = (
+                "$\mathbf{Global\ Metrics}$\n"
+                f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
+                f"• Max Abs Error: {abs_err.max():.3e}\n"
+                f"• Mean Abs Error: {abs_err.mean():.3e}"
+            )
+            self.err_ax.text(0.04, 0.96, text_str, transform=self.err_ax.transAxes, fontsize=9,
+                            verticalalignment='top', horizontalalignment='left',
+                            bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.88, edgecolor='#cccccc'))
+            self.err_ax.set_title('2D Absolute Error Distribution', fontsize=11, fontweight='bold')
         else:
-            # 显示误差云图
-            ax = self.figure.add_subplot(111)
-            if Z_pred is not None and Z_true is not None:
-                abs_err = np.abs(Z_pred - Z_true)
-                cf = ax.contourf(X, Y, abs_err, levels=50, cmap='inferno')
-                self.figure.colorbar(cf, ax=ax, label='Absolute Error $|u_{pred} - u_{true}|$')
-                l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
-                text_str = (
-                    "$\mathbf{Global\ Metrics}$\n"
-                    f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
-                    f"• Max Abs Error: {abs_err.max():.3e}\n"
-                    f"• Mean Abs Error: {abs_err.mean():.3e}"
-                )
-                ax.text(0.04, 0.96, text_str, transform=ax.transAxes, fontsize=9,
-                        verticalalignment='top', horizontalalignment='left',
-                        bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.88, edgecolor='#cccccc'))
-                ax.set_title('2D Absolute Error Distribution', fontsize=11, fontweight='bold')
-            else:
-                ax.text(0.5, 0.5, "无误差数据", ha='center', va='center')
-                ax.set_title('2D Error (No data)')
-            ax.set_xlabel('X')
-            ax.set_ylabel('Y')
-            ax.set_aspect('equal')
-            self.switch_btn.setText("切换到预测解")
-            self.state_label.setText("当前: 误差图")
-        self.figure.tight_layout()
-        self.canvas.draw()
+            self.err_ax.text(0.5, 0.5, "无误差数据", ha='center', va='center')
+            self.err_ax.set_title('2D Error (No data)')
+        self.err_ax.set_xlabel('X')
+        self.err_ax.set_ylabel('Y')
+        self.err_ax.set_aspect('equal')
+        self.err_figure.tight_layout()
+        self.err_canvas.draw()
     def set_data(self, model=None, x_range=(0, 1), y_range=(0, 1), true_func=None, exact_func=None, n_points=100):
         true_func = true_func if true_func is not None else exact_func
         self.figure.clear()
@@ -527,13 +518,8 @@ class Steady2DPlotWidget(QWidget):
         Z_true = data['Z_true']
         self._has_true = (Z_true is not None)
         if self.mode == 'overlay':
-            self.switch_btn.setVisible(True)
-            self.state_label.setVisible(True)
-            self._overlay_state = 0
-            self._update_overlay_display()
+            self._update_overlay_display_tab()
             return
-        self.switch_btn.setVisible(False)
-        self.state_label.setVisible(False)
         if Z_true is not None and Z_pred is not None:
             if self.mode == 'horizontal':
                 ax1 = self.figure.add_subplot(1, 2, 1, projection='3d')
@@ -611,34 +597,46 @@ class Transient2DPlotWidget(QWidget):
         self.canvas = FigureCanvasQTAgg(self.figure)
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        control_bar = QHBoxLayout()
-        control_bar.setContentsMargins(5, 2, 5, 2)
-        self.switch_btn = QPushButton("切换到误差图")
-        self.switch_btn.setFixedWidth(120)
-        self.switch_btn.setVisible(False)
-        self.switch_btn.clicked.connect(self._toggle_overlay)
-        self.state_label = QLabel("当前: 预测解")
-        self.state_label.setStyleSheet("font-size: 10px; color: gray;")
-        self.state_label.setVisible(False)
-        self.label = QLabel("Time (t): 0.000")
-        self.label.setStyleSheet("font-weight: bold; font-size: 12px;")
-        self.slider = QSlider(Qt.Horizontal)
-        self.slider.setRange(0, 100)
-        self.slider.setValue(0)
-        self.slider.valueChanged.connect(self._on_slider_changed)
-        control_bar.addWidget(self.label)
-        control_bar.addStretch()
-        control_bar.addWidget(self.switch_btn)
-        control_bar.addWidget(self.state_label)
-        main_layout.addLayout(control_bar)
-        main_layout.addWidget(self.canvas)
-        slider_layout = QHBoxLayout()
-        slider_layout.addWidget(self.slider)
-        main_layout.addLayout(slider_layout)
-    def _toggle_overlay(self):
-        self._overlay_state = 1 - self._overlay_state
-        self._update_overlay_display()
-    def _update_overlay_display(self):
+        if self.mode == 'overlay':
+            # overlay 模式：使用 QTabWidget
+            self.tab_widget = QTabWidget()
+            self.tab_widget.setVisible(True)
+            # 标签页1：预测解（3D 曲面）
+            self.pred_figure = Figure(figsize=(11, 5))
+            self.pred_canvas = FigureCanvasQTAgg(self.pred_figure)
+            self.pred_ax = self.pred_figure.add_subplot(111, projection='3d')
+            self.tab_widget.addTab(self.pred_canvas, "预测解")
+            # 标签页2：误差图（2D 云图）
+            self.err_figure = Figure(figsize=(11, 5))
+            self.err_canvas = FigureCanvasQTAgg(self.err_figure)
+            self.err_ax = self.err_figure.add_subplot(111)
+            self.tab_widget.addTab(self.err_canvas, "误差图")
+            main_layout.addWidget(self.tab_widget)
+            # 时间滑块（overlay 模式下也要有）
+            self.label = QLabel("Time (t): 0.000")
+            self.label.setStyleSheet("font-weight: bold; font-size: 12px;")
+            self.slider = QSlider(Qt.Horizontal)
+            self.slider.setRange(0, 100)
+            self.slider.setValue(0)
+            self.slider.valueChanged.connect(self._on_slider_changed)
+            slider_layout = QHBoxLayout()
+            slider_layout.addWidget(self.label)
+            slider_layout.addWidget(self.slider)
+            main_layout.addLayout(slider_layout)
+        else:
+            self.label = QLabel("Time (t): 0.000")
+            self.label.setStyleSheet("font-weight: bold; font-size: 12px;")
+            self.slider = QSlider(Qt.Horizontal)
+            self.slider.setRange(0, 100)
+            self.slider.setValue(0)
+            self.slider.valueChanged.connect(self._on_slider_changed)
+            main_layout.addWidget(self.canvas)
+            slider_layout = QHBoxLayout()
+            slider_layout.addWidget(self.label)
+            slider_layout.addWidget(self.slider)
+            main_layout.addLayout(slider_layout)
+    def _update_overlay_display_tab(self):
+        """overlay 模式：分别更新两个标签页"""
         if self._current_data is None:
             return
         data = self._current_data
@@ -646,46 +644,43 @@ class Transient2DPlotWidget(QWidget):
         Z_pred = data['Z_pred']
         Z_true = data['Z_true']
         t_val = data.get('t_val', 0.0)
-        self.figure.clear()
-        if self._overlay_state == 0:
-            ax = self.figure.add_subplot(111, projection='3d')
-            surf = ax.plot_surface(X, Y, Z_pred, cmap='viridis', edgecolor='none', alpha=0.95) if Z_pred is not None else None
-            if surf:
-                self.figure.colorbar(surf, ax=ax, shrink=0.5, aspect=10, pad=0.08)
-            ax.set_title(f'3D Predicted $u_{{pred}}$ (t = {t_val:.3f})', fontsize=11, fontweight='bold')
-            ax.set_xlabel('X')
-            ax.set_ylabel('Y')
-            ax.set_zlabel('u')
-            ax.view_init(elev=30, azim=-60)
-            self.switch_btn.setText("切换到误差图")
-            self.state_label.setText("当前: 预测解")
+        # --- 标签页1: 预测解 (3D 曲面) ---
+        self.pred_ax.clear()
+        if Z_pred is not None:
+            surf = self.pred_ax.plot_surface(X, Y, Z_pred, cmap='viridis', edgecolor='none', alpha=0.95)
+            self.pred_figure.colorbar(surf, ax=self.pred_ax, shrink=0.5, aspect=10, pad=0.08)
+        self.pred_ax.set_title(f'3D Predicted $u_{{pred}}$ (t = {t_val:.3f})', fontsize=11, fontweight='bold')
+        self.pred_ax.set_xlabel('X')
+        self.pred_ax.set_ylabel('Y')
+        self.pred_ax.set_zlabel('u')
+        self.pred_ax.view_init(elev=30, azim=-60)
+        self.pred_figure.tight_layout()
+        self.pred_canvas.draw()
+        # --- 标签页2: 误差图 (2D 云图) ---
+        self.err_ax.clear()
+        if Z_pred is not None and Z_true is not None:
+            abs_err = np.abs(Z_pred - Z_true)
+            cf = self.err_ax.contourf(X, Y, abs_err, levels=50, cmap='inferno')
+            self.err_figure.colorbar(cf, ax=self.err_ax, label='Absolute Error $|u_{pred} - u_{true}|$')
+            l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
+            text_str = (
+                f"$\mathbf{{Metrics\ at\ t={t_val:.3f}}}$\n"
+                f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
+                f"• Max Abs Error: {abs_err.max():.3e}\n"
+                f"• Mean Abs Error: {abs_err.mean():.3e}"
+            )
+            self.err_ax.text(0.04, 0.96, text_str, transform=self.err_ax.transAxes, fontsize=9,
+                            verticalalignment='top', horizontalalignment='left',
+                            bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.88, edgecolor='#cccccc'))
+            self.err_ax.set_title(f'2D Absolute Error (t = {t_val:.3f})', fontsize=11, fontweight='bold')
         else:
-            ax = self.figure.add_subplot(111)
-            if Z_pred is not None and Z_true is not None:
-                abs_err = np.abs(Z_pred - Z_true)
-                cf = ax.contourf(X, Y, abs_err, levels=50, cmap='inferno')
-                self.figure.colorbar(cf, ax=ax, label='Absolute Error')
-                l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
-                text_str = (
-                    f"$\mathbf{{Metrics\ at\ t={t_val:.3f}}}$\n"
-                    f"• Rel $L_2$ Error: {l2_rel_err:.3e} ({l2_rel_err * 100:.2f}%)\n"
-                    f"• Max Abs Error: {abs_err.max():.3e}\n"
-                    f"• Mean Abs Error: {abs_err.mean():.3e}"
-                )
-                ax.text(0.04, 0.96, text_str, transform=ax.transAxes, fontsize=9,
-                        verticalalignment='top', horizontalalignment='left',
-                        bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.88, edgecolor='#cccccc'))
-                ax.set_title(f'2D Absolute Error (t = {t_val:.3f})', fontsize=11, fontweight='bold')
-            else:
-                ax.text(0.5, 0.5, "无误差数据", ha='center', va='center')
-                ax.set_title('2D Error (No data)')
-            ax.set_xlabel('X')
-            ax.set_ylabel('Y')
-            ax.set_aspect('equal')
-            self.switch_btn.setText("切换到预测解")
-            self.state_label.setText("当前: 误差图")
-        self.figure.tight_layout()
-        self.canvas.draw()
+            self.err_ax.text(0.5, 0.5, "无误差数据", ha='center', va='center')
+            self.err_ax.set_title('2D Error (No data)')
+        self.err_ax.set_xlabel('X')
+        self.err_ax.set_ylabel('Y')
+        self.err_ax.set_aspect('equal')
+        self.err_figure.tight_layout()
+        self.err_canvas.draw()
     def set_data(self, model=None, x_range=(0, 1), y_range=(0, 1), t_range=(0, 1),
                  exact_func=None, true_func=None, n_points=80):
         self.model = model
@@ -713,13 +708,8 @@ class Transient2DPlotWidget(QWidget):
         Z_true = data['Z_true']
         self._has_true = (Z_true is not None)
         if self.mode == 'overlay':
-            self.switch_btn.setVisible(True)
-            self.state_label.setVisible(True)
-            self._overlay_state = 0
-            self._update_overlay_display()
+            self._update_overlay_display_tab()
             return
-        self.switch_btn.setVisible(False)
-        self.state_label.setVisible(False)
         if Z_true is not None and Z_pred is not None:
             if self.mode == 'horizontal':
                 ax1 = self.figure.add_subplot(1, 2, 1, projection='3d')
