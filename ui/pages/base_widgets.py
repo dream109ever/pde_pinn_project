@@ -781,7 +781,8 @@ class SolverThread(QThread):
                 coeffs=coeffs,
                 source_term=source_term,
                 domain=domain,
-                condition=condition
+                condition=condition,
+                log_callback=self.log_signal.emit,
             )
             exact_func = res_dict.get("exact_solution")
             exact_expr = res_dict.get("exact_expression")
@@ -797,8 +798,8 @@ class SolverThread(QThread):
                 var_symbols.append('t')
             result_data = {
                 'exact_expr': exact_expr if exact_expr else "数值/级数近似基准解",
-                'exact_solution': exact_func,    # 可直接调用的 Python/NumPy 函数
-                'loss_functions': loss_funcs,    # [pde_loss, bc_loss, total_loss] 供 PINN 训练使用
+                'exact_solution': exact_func,
+                'loss_functions': loss_funcs,
                 'raw_rhs': exact_expr,
                 'var_symbols': var_symbols,
                 'dimension': dimension,

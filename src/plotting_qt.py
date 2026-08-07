@@ -31,6 +31,34 @@ plt.rcParams['axes.unicode_minus'] = False
 # ============================================================================
 # 1. Training Loss 曲线控件
 # ============================================================================
+def _apply_theme_to_figure(fig):
+    """统一为 Figure 和所有 Axes 应用主题背景色"""
+    try:
+        from ui.theme_manager import ThemeManager
+        import re
+        theme = ThemeManager.instance().current
+        bg_color = theme.card_bg
+        text_color = theme.text_primary
+        def parse_color(c):
+            if not c: return '#FFFFFF'
+            rgba_match = re.match(r'rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)', c)
+            if rgba_match:
+                return (int(rgba_match.group(1))/255.0, int(rgba_match.group(2))/255.0, 
+                        int(rgba_match.group(3))/255.0, float(rgba_match.group(4)) if rgba_match.group(4) else 1.0)
+            return c
+        bg = parse_color(bg_color)
+        fg = parse_color(text_color)
+        fig.patch.set_facecolor(bg)
+        for ax in fig.axes:
+            ax.set_facecolor(bg)
+            ax.title.set_color(fg)
+            ax.xaxis.label.set_color(fg)
+            ax.yaxis.label.set_color(fg)
+            if hasattr(ax, 'zaxis'):
+                ax.zaxis.label.set_color(fg)
+            ax.tick_params(colors=fg, labelcolor=fg)
+    except:
+        pass
 class LossPlotWidget(QWidget):
     """训练 Loss 曲线可视化控件"""
     def __init__(self, parent=None):
@@ -60,6 +88,7 @@ class LossPlotWidget(QWidget):
         ax.set_xlabel('Epoch / Iteration')
         ax.set_ylabel('Loss (Log Scale)')
         ax.grid(True, which='both', linestyle='--', alpha=0.3)
+        _apply_theme_to_figure(self.figure)
         self.figure.tight_layout()
         self.canvas.draw()
 # ============================================================================
@@ -229,6 +258,7 @@ class Steady1DPlotWidget(QWidget):
             ax.set_xlabel('x')
             ax.set_ylabel('u(x)')
             ax.grid(True, alpha=0.3)
+        _apply_theme_to_figure(self.figure)
         self.figure.tight_layout()
         self.canvas.draw()
 # ============================================================================
@@ -429,6 +459,7 @@ class Transient1DPlotWidget(QWidget):
             ax.set_xlabel('x')
             ax.set_ylabel('u(x, t)')
             ax.grid(True, alpha=0.3)
+        _apply_theme_to_figure(self.figure)
         self.figure.tight_layout()
         self.canvas.draw()
 # ============================================================================
@@ -574,6 +605,7 @@ class Steady2DPlotWidget(QWidget):
             ax = self.figure.add_subplot(111)
             ax.text(0.5, 0.5, "无数据", ha='center', va='center')
             ax.set_title('No Data')
+        _apply_theme_to_figure(self.figure)
         self.figure.tight_layout()
         self.canvas.draw()
 # ============================================================================
@@ -592,7 +624,7 @@ class Transient2DPlotWidget(QWidget):
         self.x_range = (0, 1)
         self.y_range = (0, 1)
         self.t_range = (0, 1)
-        self.n_points = 80
+        self.n_points = 60
         self.figure = Figure(figsize=(11, 5))
         self.canvas = FigureCanvasQTAgg(self.figure)
         main_layout = QVBoxLayout(self)
@@ -765,5 +797,6 @@ class Transient2DPlotWidget(QWidget):
             ax.set_title('No Data')
             ax.set_xlabel('X')
             ax.set_ylabel('Y')
+        _apply_theme_to_figure(self.figure)
         self.figure.tight_layout()
         self.canvas.draw()

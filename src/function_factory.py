@@ -1,3 +1,4 @@
+import re
 import torch
 import sympy as sp
 import numpy as np
@@ -31,16 +32,27 @@ class PDEParser:
         if isinstance(expr, (int, float)):
             return lambda *args: float(expr)
         if isinstance(expr, str):
+            cleaned = expr.strip()
+            import re
+            num_pattern = re.compile(r'^[+-]?\d+(\.\d+)?$')
+            if num_pattern.match(cleaned):
+                try:
+                    val = float(cleaned)
+                    return lambda *args: val
+                except ValueError:
+                    pass
             namespace = {
-                'np': np, 'sp': sp, 'pi': np.pi, 'sin': np.sin, 'cos': np.cos, 'exp': np.exp, 
-                'tan': np.tan, 'sinh': np.sinh, 'cosh': np.cosh, 'log': np.log, 'sqrt': np.sqrt
+                'np': np, 'sp': sp, 'pi': np.pi,
+                'sin': np.sin, 'cos': np.cos, 'exp': np.exp,
+                'tan': np.tan, 'sinh': np.sinh, 'cosh': np.cosh,
+                'log': np.log, 'sqrt': np.sqrt
             }
             args_str = ", ".join(variables)
-            lambda_str = f"lambda {args_str}: {expr}"
+            lambda_str = f"lambda {args_str}: {cleaned}"
             try:
                 return eval(lambda_str, namespace)
             except Exception as e:
-                raise ValueError(f"解析数学字符串 '{expr}' 失败，请检查变量名 {variables} 是否匹配。错误原因: {e}")
+                raise ValueError(f"解析数学字符串 '{expr}' 失败，错误原因: {e}")
         raise TypeError(f"不支持的表达式类型: {type(expr)}")
     @classmethod
     def parse_boundary_conditions(cls, condition_list: List[dict], variables: List[str]) -> Dict[str, List[dict]]:
@@ -141,7 +153,20 @@ class InputParser:
     def parse_source(source_term, variables):
         """解析源项，返回 (callable, str_or_None)"""
         if isinstance(source_term, str):
-            return PDEParser.parse_expression(source_term, variables), source_term
+            cleaned = source_term.strip()
+            num_pattern = re.compile(r'^[+-]?\d+(\.\d+)?$')
+            if num_pattern.match(cleaned):
+                try:
+                    val = float(cleaned)
+                    if val.is_integer():
+                        cleaned = str(int(val))
+                    else:
+                        cleaned = str(val)
+                    return (lambda *args: val), cleaned
+                except ValueError:
+                    pass
+            func = PDEParser.parse_expression(cleaned, variables)
+            return func, cleaned
         if callable(source_term):
             return source_term, None
         return source_term, str(source_term)
@@ -471,36 +496,43 @@ class AnalyticalSolverHub:
         """
         # ===== 第1步：尝试 sympy 解析解 =====
         exact_expr = None
-        if source_term_str is not None:
-            try:
-                x_sym = sp.Symbol('x')
-                u_sym = sp.Function('u')(x_sym)
-                ode_expr = 0
-                for i in range(order + 1):
-                    coeff_str = coeffs[i]
-                    if isinstance(coeff_str, (int, float)):
-                        coeff_expr = sp.Number(coeff_str)
-                    else:
-                        coeff_expr = sp.sympify(coeff_str)
-                    if i == 0:
-                        ode_expr += coeff_expr * u_sym
-                    else:
-                        ode_expr += coeff_expr * u_sym.diff(x_sym, i)
-                ode_expr = ode_expr - sp.sympify(source_term_str)
-                ics = {}
-                for cond in condition:
-                    ics[u_sym.diff(x_sym, cond["derivative"]).subs(x_sym, cond["point"])] = cond["value"]
-                sol = PDEParser.solve_ode(ode_expr, u_sym, ics)
-                if sol is not None:
-                    expr_str = str(sol.rhs)
-                    bad_patterns = ["Integral", "RootOf", "Piecewise", "Order"]
-                    if not sol.rhs.has(sp.Order) and not any(p in expr_str for p in bad_patterns):
-                        exact_expr = expr_str
-                if exact_expr is not None:
+        try:
+            x_sym = sp.Symbol('x')
+            u_sym = sp.Function('u')(x_sym)
+            ode_expr = 0
+            for i in range(order + 1):
+                c_item = coeffs[i]
+                if callable(c_item):
+                    coeff_expr = sp.sympify(c_item(0.0) if callable(c_item) else c_item)
+                elif isinstance(c_item, (int, float, np.number)):
+                    coeff_expr = sp.Number(c_item)
+                else:
+                    coeff_expr = sp.sympify(str(c_item))
+                if i == 0:
+                    ode_expr += coeff_expr * u_sym
+                else:
+                    ode_expr += coeff_expr * u_sym.diff(x_sym, i)
+            if source_term_str is not None:
+                try:
+                    source_sym = sp.sympify(str(source_term_str))
+                except Exception:
+                    source_sym = sp.Number(0)
+            else:
+                source_sym = 0
+            ode_expr = ode_expr - source_sym
+            ics = {}
+            for cond in condition:
+                ics[u_sym.diff(x_sym, cond["derivative"]).subs(x_sym, cond["point"])] = cond["value"]
+            sol = PDEParser.solve_ode(ode_expr, u_sym, ics)
+            if sol is not None:
+                expr_str = str(sol.rhs)
+                bad_patterns = ["Integral", "RootOf", "Piecewise", "Order"]
+                if not sol.rhs.has(sp.Order) and not any(p in expr_str for p in bad_patterns):
+                    exact_expr = expr_str
                     exact_func = sp.lambdify(x_sym, sol.rhs, modules=['numpy'])
                     return exact_func, exact_expr
-            except Exception:
-                pass
+        except Exception as e:
+            print(f"[DEBUG] Sympy 解析解构造失败，原因: {e}")
         # ===== 第2步：如果 sympy 成功，返回精确解 =====
         if exact_expr is not None:
             exact_func = sp.lambdify(x_sym, sol.rhs, modules=['numpy'])
@@ -602,6 +634,7 @@ class AnalyticalSolverHub:
         # === 以下是由 PDEParser 解析后的对象 ===
         c_tt_fn: Callable, c_t_fn: Callable, c_xx_fn: Callable, c_x_fn: Callable, c_u_fn: Callable, f: Callable,
         ic_conds: list, bc_sides: dict, x_min: float, x_max: float,  t_min: float, t_max: float, Lx: float, 
+        log_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[Optional[Callable], Optional[str]]:
         """
         一维含时 PDE 精确解（热传导/波动方程的级数解）
@@ -871,12 +904,25 @@ class AnalyticalSolverHub:
                     def exact_func(x_vals, t_vals):
                         xv, tv = np.asarray(x_vals), np.asarray(t_vals)
                         scalar = np.isscalar(x_vals) and np.isscalar(t_vals)
+                        if scalar:
+                            xv = np.array([xv])
+                            tv = np.array([tv])
                         pts = np.stack([xv.flatten(), tv.flatten()], axis=1)
                         u_interp = fdm_interp(pts).reshape(xv.shape)
-                        return u_interp[0] if scalar else u_interp
-                    print(f"[FDM-1D时变通用器] 类型未匹配解析解，成功启动有限差分数值基准模型。")
+                        if scalar:
+                            return u_interp[0]
+                        return u_interp
+                    print_msg = f"[FDM-1D时变通用器] 类型未匹配解析解，成功启动有限差分数值基准模型。"
+                    if log_callback:
+                        log_callback(print_msg)
+                    else:
+                        print(print_msg)
             except Exception as e:
-                print(f"[FDM-1D时变通用器] 数值离散推进崩溃: {e}")
+                error_msg = f"[FDM-1D时变通用器] 数值离散推进崩溃: {e}"
+                if log_callback:
+                    log_callback(error_msg)
+                else:
+                    print(error_msg)
                 exact_func = None
         return exact_func, exact_expr
     @classmethod
@@ -1260,13 +1306,14 @@ class AnalyticalSolverHub:
         c_tt_fn: Callable, c_t_fn: Callable, c_xx_fn: Callable, c_yy_fn: Callable, c_xy_fn: Callable,
         c_x_fn: Callable, c_y_fn: Callable, c_u_fn: Callable, f: Callable, ic_conds: list, bc_sides: dict,
         x_min: float, x_max: float, y_min: float, y_max: float, t_min: float, t_max: float, Lx: float, Ly: float, 
+        log_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[Optional[Callable], Optional[str]]:
         """
         二维含时 PDE 精确解（热传导/波动的双重级数解 + MOL fallback）
         """
         exact_func = None
         exact_expr = None
-        N_terms = 15
+        N_terms = 8
         try:
             v_tt = float(c_tt_fn(x_min, y_min, t_min))
             v_t  = float(c_t_fn(x_min, y_min, t_min))
@@ -1314,11 +1361,16 @@ class AnalyticalSolverHub:
                     def exact_func(x_vals, y_vals, t_vals):
                         xv, yv, tv = np.asarray(x_vals), np.asarray(y_vals), np.asarray(t_vals)
                         scalar = np.isscalar(x_vals) and np.isscalar(y_vals) and np.isscalar(t_vals)
-                        u = np.zeros_like(xv if not scalar else np.array([xv]), dtype=float)
-                        for (m, n), A_mn in A_coeffs.items():
-                            if abs(A_mn) > 1e-12:
-                                lambda_mn = (m * np.pi / Lx)**2 + (n * np.pi / Ly)**2
-                                u += A_mn * np.sin(m * np.pi * (xv - x_min) / Lx) * np.sin(n * np.pi * (yv - y_min) / Ly) * np.exp(-(kappa * lambda_mn + beta) * (tv - t_min))
+                        if scalar:
+                            xv = np.array([xv]); yv = np.array([yv]); tv = np.array([tv])
+                        valid_terms = [(m, n, A_mn) for (m, n), A_mn in A_coeffs.items() if abs(A_mn) > 1e-10]
+                        u = np.zeros_like(xv, dtype=float)
+                        for m, n, A_mn in valid_terms:
+                            lambda_mn = (m * np.pi / Lx)**2 + (n * np.pi / Ly)**2
+                            decay = np.exp(-(kappa * lambda_mn + beta) * (tv - t_min))
+                            sin_x = np.sin(m * np.pi * (xv - x_min) / Lx)
+                            sin_y = np.sin(n * np.pi * (yv - y_min) / Ly)
+                            u += A_mn * sin_x * sin_y * decay
                         return u[0] if scalar else u
                     exact_expr = (
                         f"u(x,y,t) = Σ_m Σ_n [ T_mn(t) * sin(mπx/{Lx:.2f}) * sin(nπy/{Ly:.2f}) ]\n"
@@ -1547,13 +1599,30 @@ class AnalyticalSolverHub:
                         scalar = np.isscalar(x_vals) and np.isscalar(y_vals) and np.isscalar(t_vals)
                         pts = np.stack([xv.flatten(), yv.flatten(), tv.flatten()], axis=1)
                         u_interp = fdm_interp(pts).reshape(xv.shape)
-                        return u_interp[0] if scalar else u_interp
-                    print(f"[MOL-2D时空] 成功完成，网格 {nx}x{ny}x{t_steps}")
+                        if scalar:
+                            if u_interp.ndim == 0:
+                                return u_interp.item()
+                            else:
+                                return u_interp[0]
+                        return u_interp
+                    msg = f"[MOL-2D时空] 成功完成，网格 {nx}x{ny}x{t_steps}"
+                    if log_callback:
+                        log_callback(msg)
+                    else:
+                        print(msg)
                 else:
-                    print(f"[MOL-2D时空] 所有求解器均失败: {sol_res.message}")
+                    msg = f"[MOL-2D时空] 所有求解器均失败: {sol_res.message}"
+                    if log_callback:
+                        log_callback(msg)
+                    else:
+                        print(msg)
                     exact_func = None
             except Exception as e:
-                print(f"[MOL-2D时空] 降维积分失败: {e}")
+                msg = f"[MOL-2D时空] 降维积分失败: {e}"
+                if log_callback:
+                    log_callback(msg)
+                else:
+                    print(msg)
                 exact_func = None
         return exact_func, exact_expr
     @classmethod
@@ -1594,7 +1663,8 @@ class AnalyticalSolverHub:
                 x_max=kwargs['x_max'],
                 t_min=kwargs['t_min'],
                 t_max=kwargs['t_max'], 
-                Lx=kwargs['Lx']
+                Lx=kwargs['Lx'],
+                log_callback=kwargs.get('log_callback', None)
             )
         elif dimension == 2 and not has_t:
             return cls.solve_2d_steady(
@@ -1641,12 +1711,13 @@ class AnalyticalSolverHub:
                 t_min=kwargs['t_min'],
                 t_max=kwargs['t_max'], 
                 Lx=kwargs['Lx'], 
-                Ly=kwargs['Ly']
+                Ly=kwargs['Ly'],
+                log_callback=kwargs.get('log_callback', None)
             )
         else:
             raise ValueError(f"不支持: dimension={dimension}, has_t={has_t}")
 
-def solve_pde(dimension: int, order: int, has_t: bool, coeffs, source_term, domain: dict, condition: list[dict]) -> dict:
+def solve_pde(dimension: int, order: int, has_t: bool, coeffs, source_term, domain: dict, condition: list[dict], log_callback: Optional[Callable[[str], None]] = None) -> dict:
     """
     偏微分方程/常微分方程统一求解接口。
     
@@ -1889,7 +1960,7 @@ def solve_pde(dimension: int, order: int, has_t: bool, coeffs, source_term, doma
         exact_func, exact_expr = AnalyticalSolverHub.generate(
             dimension=1, has_t=True, coeff_dict=coeff_dict, source_term=source_term, domain=domain, condition=condition,
             c_tt_fn=c_tt_fn, c_t_fn=c_t_fn, c_xx_fn=c_xx_fn, c_x_fn=c_x_fn, c_u_fn=c_u_fn, f=f,
-            ic_conds=ic_conds, bc_sides=bc_sides, x_min=x_min, x_max=x_max, t_min=t_min, t_max=t_max, Lx=Lx
+            ic_conds=ic_conds, bc_sides=bc_sides, x_min=x_min, x_max=x_max, t_min=t_min, t_max=t_max, Lx=Lx, log_callback=log_callback
         )
         return {
             "loss_functions": [pde_loss, bc_ic_loss, total_loss],
@@ -1965,7 +2036,7 @@ def solve_pde(dimension: int, order: int, has_t: bool, coeffs, source_term, doma
         exact_func, exact_expr = AnalyticalSolverHub.generate(
             dimension=2, has_t=True, coeff_dict=coeff_dict, source_term=source_term, domain=domain, condition=condition,
             c_tt_fn=c_tt_fn, c_t_fn=c_t_fn, c_xx_fn=c_xx_fn, c_yy_fn=c_yy_fn, c_xy_fn=c_xy_fn, c_x_fn=c_x_fn, c_y_fn=c_y_fn, c_u_fn=c_u_fn, f=f,
-            ic_conds=ic_conds, bc_sides=bc_sides, x_min=x_min, x_max=x_max, y_min=y_min, y_max=y_max, t_min=t_min, t_max=t_max, Lx=Lx, Ly=Ly
+            ic_conds=ic_conds, bc_sides=bc_sides, x_min=x_min, x_max=x_max, y_min=y_min, y_max=y_max, t_min=t_min, t_max=t_max, Lx=Lx, Ly=Ly, log_callback=log_callback
         )
         return {
             "loss_functions": [pde_loss, bc_ic_loss, total_loss],
