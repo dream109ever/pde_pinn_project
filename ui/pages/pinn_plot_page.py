@@ -1,4 +1,5 @@
 # ui/pages/pinn_plot_page.py
+import json
 import torch
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
@@ -8,14 +9,15 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import matplotlib as mpl
 from src import *
+from ui.theme_manager import ThemeManager
 from .base_widgets import BasePage, PreviewLabel, SolverThread
 mpl.use('Agg')
-mpl.rcParams['font.size'] = 11
-mpl.rcParams['axes.titlesize'] = 13
-mpl.rcParams['axes.labelsize'] = 11
-mpl.rcParams['xtick.labelsize'] = 10
-mpl.rcParams['ytick.labelsize'] = 10
-mpl.rcParams['legend.fontsize'] = 10
+mpl.rcParams['font.size'] = 14
+mpl.rcParams['axes.titlesize'] = 14
+mpl.rcParams['axes.labelsize'] = 12
+mpl.rcParams['xtick.labelsize'] = 11
+mpl.rcParams['ytick.labelsize'] = 11
+mpl.rcParams['legend.fontsize'] = 11
 
 class PINNTrainerThread(QThread):
     log_signal = pyqtSignal(str)
@@ -109,18 +111,30 @@ class PINNTrainerThread(QThread):
     def run(self):
         try:
             config = self.problem_config
+            total_epochs = config.get("_user_epochs", self.total_epochs)
             self.log_signal.emit("初始化求解器...")
             # 1. 构建损失函数
             loss_functions = self._build_loss_functions(config)
             # 2. 构建模型
-            model = build_model(
-                coeffs=config.get("coeffs", {}),
-                source_term=config.get("source_term", "0"),
-                conditions=config.get("condition", []),
-                has_t=config.get("has_t", False),
-                dimension=config.get("dimension", 1),
-                verbose=False,
-            )
+            network_config = config.get("_network_config")
+            if network_config:
+                from src.network_factory import build_network
+                model = build_network(
+                    input_dim=network_config["input_dim"],
+                    output_dim=network_config["output_dim"],
+                    hidden_dims=network_config["hidden_dims"],
+                    activation=network_config.get("activation", "tanh"),
+                    init_method=network_config.get("init_method", "xavier"),
+                )
+            else:
+                model = build_model(
+                    coeffs=config.get("coeffs", {}),
+                    source_term=config.get("source_term", "0"),
+                    conditions=config.get("condition", []),
+                    has_t=config.get("has_t", False),
+                    dimension=config.get("dimension", 1),
+                    verbose=False,
+                )
             # 3. 采样器
             domain = config.get("domain", {"x": [0, 1]})
             sampler = DomainSampler(
@@ -143,16 +157,15 @@ class PINNTrainerThread(QThread):
             # 6. 分块训练
             current_epoch = 0
             loss_history = {'total': [], 'pde': [], 'bc': []}
-            # 训练回调：每5步发送一次损失数据（高频）
-            def loss_callback(epoch, total_loss, pde_loss, bc_loss):
+            # 训练回调：每5步发送一次损失数据
+            def loss_callback(epoch, total_loss, pde_loss, bc_loss, total_epochs=total_epochs):
                 loss_history['total'].append(total_loss)
                 loss_history['pde'].append(pde_loss)
                 loss_history['bc'].append(bc_loss)
-                # 每5步发送一次（高频更新）
-                if epoch % 5 == 0 or epoch == self.total_epochs - 1:
+                if epoch % 5 == 0 or epoch == total_epochs - 1:
                     self.loss_signal.emit(epoch, total_loss, pde_loss, bc_loss)
-            while current_epoch < self.total_epochs and self._is_running:
-                step = min(self.chunk_epochs, self.total_epochs - current_epoch)
+            while current_epoch < total_epochs and self._is_running:
+                step = min(self.chunk_epochs, total_epochs - current_epoch)
                 history = trainer.train(
                     n_epochs=step,
                     sampler=sampler,
@@ -187,7 +200,12 @@ class PinnPlotPage(BasePage):
         self.solver_thread = None
         self.trainer_thread = None
         self.solved_result = None
+        self._current_config_hash = None
+        self._is_training = False
+        self._loss_history = {'total': [], 'pde': [], 'bc': []}
         self.init_ui()
+        ThemeManager.instance().theme_changed.connect(lambda _: self.apply_theme())
+        self.apply_theme()
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -218,8 +236,11 @@ class PinnPlotPage(BasePage):
         self.lr_spin.setSingleStep(1e-4)
         self.lr_spin.setDecimals(6)
         net_form.addRow("学习率:", self.lr_spin)
-        # self.batch_norm_check = QCheckBox("使用 BatchNorm")
-        # net_form.addRow("", self.batch_norm_check)
+        self.total_epochs_spin = QSpinBox()
+        self.total_epochs_spin.setRange(100, 100000)
+        self.total_epochs_spin.setValue(3000)
+        self.total_epochs_spin.setSingleStep(500)
+        net_form.addRow("总训练轮数:", self.total_epochs_spin)
         left_layout.addWidget(self.network_group)
         # 控制按钮
         btn_layout = QHBoxLayout()
@@ -250,13 +271,13 @@ class PinnPlotPage(BasePage):
         # 右侧内部垂直分割器（损失曲线 40% | 绘图控件 60%）
         right_splitter = QSplitter(Qt.Vertical)
         # ---- 上半部分：损失曲线 ----
-        loss_group = QGroupBox("损失函数曲线 (高频更新)")
+        loss_group = QGroupBox("损失函数曲线")
         loss_layout = QVBoxLayout(loss_group)
         self.loss_plot_widget = LossPlotWidget()
         loss_layout.addWidget(self.loss_plot_widget)
         right_splitter.addWidget(loss_group)
         # ---- 下半部分：绘图控件 ----
-        plot_group = QGroupBox("预测解与精确解对比 (低频更新)")
+        plot_group = QGroupBox("预测解与精确解对比")
         plot_layout = QVBoxLayout(plot_group)
         self.stacked_widget = QStackedWidget()
         self.widget_1d_steady = Steady1DPlotWidget(mode='overlay')
@@ -285,24 +306,68 @@ class PinnPlotPage(BasePage):
     # ========== 接收配置 ==========
     def set_problem_config(self, config: dict):
         """接收上一页传递的纯配置字典。"""
-        # ===== 1. 存储配置 =====
+        # ===== 1. 计算新配置的哈希值 =====
+        try:
+            key_fields = {
+                "dimension": config.get("dimension"),
+                "has_t": config.get("has_t"),
+                "order": config.get("order"),
+                "coeffs": json.dumps(config.get("coeffs", {}), sort_keys=True),
+                "source_term": config.get("source_term", ""),
+                "domain": json.dumps(config.get("domain", {}), sort_keys=True),
+                "condition": json.dumps(config.get("condition", []), sort_keys=True),
+            }
+            new_hash = hash(json.dumps(key_fields, sort_keys=True))
+        except:
+            new_hash = None
+        # ===== 2. 判断是否是首次设置 =====
+        is_first_time = (self._current_config_hash is None)
+        # ===== 3. 判断配置是否真正改变 =====
+        if is_first_time:
+            config_changed = False
+        else:
+            config_changed = (self._current_config_hash != new_hash)
+        # ===== 4. 如果配置改变，停止旧线程 =====
+        if config_changed:
+            if self.solver_thread is not None and self.solver_thread.isRunning():
+                self.solver_thread.terminate()
+                self.solver_thread = None
+            if self.trainer_thread is not None and self.trainer_thread.isRunning():
+                self.trainer_thread.stop()
+                self.trainer_thread = None
+            self._is_training = False
+            self.network_group.setEnabled(True)
+            self.total_epochs_spin.setEnabled(True)
+            self.solve_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            self._loss_history = {'total': [], 'pde': [], 'bc': []}
+            self._current_config_hash = new_hash
+            self.result_latex.set_latex(r"\text{等待求解...}")
+            self.loss_plot_widget.update_plot({})
+            self.log_text.clear()
+            self.log_text.append("检测到方程配置已更改，已自动停止旧训练线程。")
+            self.log_text.append("请点击「开始训练」使用新配置重新训练。")
+        else:
+            self.log_text.clear()
+            if is_first_time:
+                self.log_text.append("首次接收方程配置。")
+                self._current_config_hash = new_hash
+            else:
+                self.log_text.append("返回绘制页，训练数据保留。")
+
+            if self._loss_history and any(len(v) > 0 for v in self._loss_history.values()):
+                self.loss_plot_widget.update_plot(self._loss_history)
+                self.log_text.append(f"已恢复损失曲线 (共 {len(self._loss_history['total'])} 步)")
+        # ===== 5. 存储配置 =====
         self.problem_config = config
-        # ===== 2. 清空之前的状态 =====
-        self.exact_func = None
-        self.exact_expr = None
-        self.log_text.clear()
-        self.log_text.append("已接收方程配置。")
-        # ===== 3. 自动切换绘图控件 =====
+        # ===== 6. 自动切换绘图控件 =====
         dim = self.problem_config.get("dimension", 1)
         has_t = self.problem_config.get("has_t", False)
-        index = { (1, False): 0, (1, True): 1, (2, False): 2, (2, True): 3 }.get((dim, has_t), 0)
+        index = {(1, False): 0, (1, True): 1, (2, False): 2, (2, True): 3}.get((dim, has_t), 0)
         self.stacked_widget.setCurrentIndex(index)
-        # ===== 4. 显示等待求解 =====
-        self.result_latex.set_latex(r"\text{等待求解...}")
-        self.log_text.append("请点击「开始训练」启动求解与训练流程。")
-        # ===== 5. 自动填充网络结构（如果 config 中携带了 auto_network 信息）=====
+        # ===== 7. 自动填充网络结构 =====
         auto_net = config.get("auto_network", None)
-        if auto_net is not None:
+        if auto_net is not None and is_first_time:
             try:
                 linear_layers = [m for m in auto_net.children() if isinstance(m, torch.nn.Linear)]
                 if linear_layers:
@@ -312,8 +377,6 @@ class PinnPlotPage(BasePage):
                     self.log_text.append("已自动填充网络结构。")
             except Exception:
                 pass
-        self.loss_plot_widget.update_plot({})
-
     # ========== 训练控制 ==========
     def start_solving(self):
         if not self.problem_config:
@@ -327,11 +390,33 @@ class PinnPlotPage(BasePage):
         if not hidden_dims:
             QMessageBox.warning(self, "错误", "请至少指定一层隐藏层！")
             return
+        if not self._loss_history or len(self._loss_history.get('total', [])) == 0:
+            self.widget_1d_steady.set_data(model=None)
+            self.widget_1d_transient.set_data(model=None)
+            self.widget_2d_steady.set_data(model=None)
+            self.widget_2d_transient.set_data(model=None)
+        dim = self.problem_config.get("dimension", 1)
+        has_t = self.problem_config.get("has_t", False)
+        input_dim = dim + (1 if has_t else 0)
+        network_config = {
+            "input_dim": input_dim,
+            "output_dim": 1,
+            "hidden_dims": hidden_dims,
+            "activation": self.activation_combo.currentText(),
+            "init_method": "xavier",
+        }
+        self._is_training = True
+        if self._current_config_hash is None or not self._loss_history:
+            self._loss_history = {'total': [], 'pde': [], 'bc': []}
+            self.loss_plot_widget.update_plot({})
+        self.problem_config["_network_config"] = network_config
+        self.problem_config["_user_epochs"] = self.total_epochs_spin.value()
+        self.network_group.setEnabled(False)
+        self.total_epochs_spin.setEnabled(False)
         self.solve_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.log_text.clear()
         self.log_text.append("启动训练线程...")
-        self.loss_plot_widget.update_plot({})
         self.solver_thread = SolverThread(self.problem_config)
         self.solver_thread.log_signal.connect(self.log_text.append)
         self.solver_thread.finished_signal.connect(self.on_solve_finished)
@@ -352,7 +437,7 @@ class PinnPlotPage(BasePage):
             self.problem_config["_exact_func"] = exact_func
         self.trainer_thread = PINNTrainerThread(
             problem_config=self.problem_config,
-            total_epochs=3000,
+            total_epochs=self.total_epochs_spin.value(),
             chunk_epochs=50
         )
         self.trainer_thread.log_signal.connect(self.log_text.append)
@@ -362,23 +447,47 @@ class PinnPlotPage(BasePage):
         self.trainer_thread.start()
     def on_solve_error(self, err_msg):
         """求解失败处理"""
+        self._is_training = False
         self.solve_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        self.network_group.setEnabled(True)
+        self.total_epochs_spin.setEnabled(True)
         self.log_text.append(f"求解失败: {err_msg}")
         QMessageBox.warning(self, "求解失败", err_msg)
     def on_training_finished(self):
         """训练完成"""
+        self._is_training = False
+        self.network_group.setEnabled(True)
+        self.total_epochs_spin.setEnabled(True)
         self.solve_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.log_text.append("✅ 训练完成！")
     def stop_solving(self):
         """停止流程：需要同时停止两个线程"""
+        self._is_training = False
         if self.solver_thread and self.solver_thread.isRunning():
             self.solver_thread.terminate()
         if self.trainer_thread and self.trainer_thread.isRunning():
             self.trainer_thread.stop()
+        self.network_group.setEnabled(True)
+        self.total_epochs_spin.setEnabled(True)
+        self.solve_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.log_text.append("⏹ 流程已中断。")
+    def _auto_stop_training(self):
+        if self._is_training:
+            self._is_training = False
+            if self.solver_thread and self.solver_thread.isRunning():
+                self.solver_thread.terminate()
+                self.solver_thread = None
+            if self.trainer_thread and self.trainer_thread.isRunning():
+                self.trainer_thread.stop()
+                self.trainer_thread = None
+            self.network_group.setEnabled(True)
+            self.total_epochs_spin.setEnabled(True)
+            self.solve_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            self.log_text.append("⏹ 已自动停止旧训练线程（保留最后一次结果）")
     # ========== 更新损失曲线 ==========
     def update_loss_plot(self, epoch: int, total_loss: float, pde_loss: float, bc_loss: float):
         """每5步更新一次损失曲线（高频）"""
@@ -443,3 +552,91 @@ class PinnPlotPage(BasePage):
                 t_range=tuple(domain.get("t", [0, 1])),
                 exact_func=exact_func
             )
+        self.apply_theme()
+    def apply_theme(self):
+        """应用主题颜色到所有 matplotlib 画布和 Qt 控件"""
+        try:
+            theme = ThemeManager.instance().current
+            bg_color = theme.card_bg
+            text_color = theme.text_primary
+            border_color = getattr(theme, 'btn_border', '#888888')
+            # ===== 1. 调用子控件的 apply_theme（BasePlotWidget 负责自己的 QSlider/QLabel/QTabWidget） =====
+            for widget in [
+                self.widget_1d_steady,
+                self.widget_1d_transient,
+                self.widget_2d_steady,
+                self.widget_2d_transient
+            ]:
+                if widget is not None and hasattr(widget, 'apply_theme'):
+                    widget.apply_theme(theme)
+            # ===== 2. Matplotlib 画布主题 =====
+            def apply_to_figure(fig):
+                if fig is None:
+                    return
+                fig.patch.set_facecolor(bg_color)
+                for ax in fig.axes:
+                    ax.set_facecolor(bg_color)
+                    ax.tick_params(colors=text_color, labelcolor=text_color)
+                    if hasattr(ax, 'title'):
+                        ax.title.set_color(text_color)
+                    if hasattr(ax, 'xaxis'):
+                        ax.xaxis.label.set_color(text_color)
+                        ax.yaxis.label.set_color(text_color)
+                    if hasattr(ax, 'zaxis'):
+                        ax.zaxis.label.set_color(text_color)
+                    for spine in ax.spines.values():
+                        spine.set_color(border_color)
+                    legend = ax.get_legend()
+                    if legend:
+                        legend.get_frame().set_facecolor(bg_color)
+                        legend.get_frame().set_edgecolor(border_color)
+                        for t in legend.get_texts():
+                            t.set_color(text_color)
+                fig.canvas.draw()
+            if hasattr(self.loss_plot_widget, 'figure'):
+                apply_to_figure(self.loss_plot_widget.figure)
+            for widget in [
+                self.widget_1d_steady,
+                self.widget_1d_transient,
+                self.widget_2d_steady,
+                self.widget_2d_transient
+            ]:
+                if widget is not None:
+                    if hasattr(widget, 'figure'):
+                        apply_to_figure(widget.figure)
+                    if hasattr(widget, 'pred_figure'):
+                        apply_to_figure(widget.pred_figure)
+                    if hasattr(widget, 'err_figure'):
+                        apply_to_figure(widget.err_figure)
+            # ===== 3. 页面级别 QSS（不属于 BasePlotWidget 的控件，如左侧面板的 QGroupBox） =====
+            groupbox_style = f"""
+                QGroupBox {{
+                    color: {text_color};
+                    border: 1px solid {border_color};
+                    border-radius: 6px;
+                    margin-top: 6px;
+                    padding-top: 10px;
+                    background-color: {bg_color};
+                }}
+                QGroupBox::title {{
+                    subcontrol-origin: margin;
+                    subcontrol-position: top left;
+                    left: 10px;
+                    padding: 0 4px;
+                }}
+            """
+            if hasattr(self, 'network_group'):
+                self.network_group.setStyleSheet(groupbox_style)
+                input_style = f"""
+                    QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
+                        background-color: {bg_color};
+                        color: {text_color};
+                        border: 1px solid {border_color};
+                        border-radius: 4px;
+                        padding: 4px;
+                    }}
+                """
+                for child in self.network_group.findChildren((QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox)):
+                    child.setStyleSheet(input_style)
+        except Exception:
+            pass

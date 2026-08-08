@@ -5,10 +5,11 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from .base_widgets import ClearableListWidget, InputPage, PreviewLabel
+from src.network_factory import suggest_network
 
 class PinnInputPage(InputPage):
     """第一步：输入方程与定解条件页"""
-    equation_configured = pyqtSignal(dict)  # 配置完成后向后传递数据的信号
+    equation_configured = pyqtSignal(dict)
     def __init__(self, back_to_menu_cb, parent=None):
         super().__init__(back_to_menu_cb, parent)
         self.init_ui()
@@ -228,4 +229,16 @@ class PinnInputPage(InputPage):
             "domain": domain,
             "condition": self.conditions.copy(),
         }
+        try:
+            net_config = suggest_network(
+                coeffs=coeffs_param,
+                source_term=self.source_input.text().strip() or "0",
+                conditions=self.conditions,
+                has_t=has_t,
+                dimension=dimension,
+                verbose=False,
+            )
+            config["auto_network_preview"] = net_config
+        except:
+            pass
         self.equation_configured.emit(config)

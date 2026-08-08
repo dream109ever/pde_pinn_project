@@ -2080,7 +2080,7 @@ if __name__ == "__main__":
         dimension=1,
         order=1,
         has_t=False,
-        coeffs=[1, 1],
+        coeffs=[0, 1],
         source_term="x",
         domain={"x": [0, 1]},
         condition=[
