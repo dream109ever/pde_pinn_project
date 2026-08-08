@@ -189,18 +189,6 @@ class PinnInputPage(InputPage):
             if len(self.conditions) != order:
                 QMessageBox.warning(self, "警告", f"1D 稳态需要恰好 {order} 个定解条件！")
                 return
-        else:
-            required_slots = self.get_all_possible_slots()
-            existing_sides = []
-            for c in self.conditions:
-                if c.get("side") == "initial":
-                    existing_sides.append(f"initial_{c.get('derivative', 0)}")
-                else:
-                    existing_sides.append(c.get("side"))
-            missing = [s for s in required_slots if s not in existing_sides]
-            if missing:
-                QMessageBox.warning(self, "警告", f"缺少条件: {', '.join(missing)}")
-                return
         if dimension == 2 and not has_t:
             allowed_keys = {"u_xx", "u_yy"}
             for key in self.terms.keys():

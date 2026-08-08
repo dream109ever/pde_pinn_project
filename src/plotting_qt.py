@@ -125,6 +125,22 @@ class BasePlotWidget(QWidget):
         """
         if hasattr(self, 'tab_widget') and self.tab_widget is not None:
             self.tab_widget.setStyleSheet(tab_style)
+    def _clear_colorbars(self, fig):
+        if fig is None:
+            fig = self.figure
+        for ax in list(fig.axes):
+            if isinstance(ax, matplotlib.colorbar.Colorbar) or \
+               'colorbar' in ax.__class__.__name__.lower() or \
+               (hasattr(ax, 'get_label') and ax.get_label() and 'colorbar' in ax.get_label().lower()):
+                try:
+                    ax.remove()
+                except Exception:
+                    pass
+                if ax in fig.axes:
+                    fig.axes.remove(ax)
+        fig.set_layout_engine('none')
+        fig.set_layout_engine('constrained')
+        fig.canvas.draw_idle()
 # ============================================================================
 # 1. Training Loss 曲线控件
 # ============================================================================
@@ -160,7 +176,7 @@ class LossPlotWidget(QWidget):
     """训练 Loss 曲线可视化控件"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.figure = Figure(figsize=PLOT_FIGSIZE_LOSS)
+        self.figure = Figure(figsize=PLOT_FIGSIZE_LOSS, constrained_layout=True)
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.ax = self.figure.add_subplot(111)
         self.ax.set_yscale('log')
@@ -171,7 +187,7 @@ class LossPlotWidget(QWidget):
         self.ax.set_xlabel('Epoch / Iteration', fontsize=PLOT_AXIS_LABELSIZE)
         self.ax.set_ylabel('Loss', fontsize=PLOT_AXIS_LABELSIZE)
         self.ax.grid(True, which='both', linestyle='--', alpha=0.3)
-        self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         self.placeholder_text = self.ax.text(
             0.5, 0.5, "等待训练数据...", ha='center', va='center',
             fontsize=PLOT_AXIS_LABELSIZE, color='gray', transform=self.ax.transAxes
@@ -242,7 +258,7 @@ class Steady1DPlotWidget(BasePlotWidget):
         self._overlay_state = 0  # 0: 显示预测, 1: 显示误差
         self._has_true = False
         self._current_data = None
-        self.figure = Figure(figsize=PLOT_FIGSIZE_1D)
+        self.figure = Figure(figsize=PLOT_FIGSIZE_1D, constrained_layout=True)
         self.canvas = FigureCanvasQTAgg(self.figure)
         # 布局：画布 + 控制栏
         main_layout = QVBoxLayout(self)
@@ -273,7 +289,8 @@ class Steady1DPlotWidget(BasePlotWidget):
         u_pred = data['u_pred']
         u_true = data['u_true']
         # --- 标签页1: 预测解 ---
-        self.pred_ax.clear()
+        self.pred_figure.clear()
+        self.pred_ax = self.pred_figure.add_subplot(111)
         if u_pred is not None:
             self.pred_ax.plot(x, u_pred, 'b-', label='PINN Prediction', linewidth=PLOT_LINEWIDTH_THICK)
         if u_true is not None:
@@ -284,11 +301,12 @@ class Steady1DPlotWidget(BasePlotWidget):
         if u_pred is not None or u_true is not None:
             self.pred_ax.legend(fontsize=PLOT_LEGEND_FONTSIZE)
         self.pred_ax.grid(True, alpha=0.3)
-        self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.pred_figure)
-        self.pred_canvas.draw()
+        self.pred_canvas.draw_idle()
         # --- 标签页2: 误差图 ---
-        self.err_ax.clear()
+        self.err_figure.clear()
+        self.err_ax = self.err_figure.add_subplot(111)
         if u_true is not None and u_pred is not None:
             abs_err = np.abs(u_pred - u_true)
             self.err_ax.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=PLOT_LINEWIDTH_THICK)
@@ -311,9 +329,9 @@ class Steady1DPlotWidget(BasePlotWidget):
             self.err_ax.set_title('1D Error (No data)')
         self.err_ax.set_xlabel('x', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.grid(True, alpha=0.3)
-        self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.err_figure)
-        self.err_canvas.draw()
+        self.err_canvas.draw_idle()
     def set_data(
         self,
         model: Optional[torch.nn.Module] = None,
@@ -395,7 +413,7 @@ class Steady1DPlotWidget(BasePlotWidget):
             ax.set_ylabel('u(x)', fontsize=PLOT_AXIS_LABELSIZE)
             ax.grid(True, alpha=0.3)
         _apply_theme_to_figure(self.figure)
-        self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         self.canvas.draw()
 # ============================================================================
 # 3. 一维含时问题控件 (1D Transient)
@@ -416,7 +434,7 @@ class Transient1DPlotWidget(BasePlotWidget):
         self.x_range = (0, 1)
         self.t_range = (0, 1)
         self.n_points = 200
-        self.figure = Figure(figsize=PLOT_FIGSIZE_1D)
+        self.figure = Figure(figsize=PLOT_FIGSIZE_1D, constrained_layout=True)
         self.canvas = FigureCanvasQTAgg(self.figure)
         # 控制栏
         main_layout = QVBoxLayout(self)
@@ -469,7 +487,8 @@ class Transient1DPlotWidget(BasePlotWidget):
         u_true = data['u_true']
         t_val = data.get('t_val', 0.0)
         # --- 标签页1: 预测解 ---
-        self.pred_ax.clear()
+        self.pred_figure.clear()
+        self.pred_ax = self.pred_figure.add_subplot(111)
         if u_pred is not None:
             self.pred_ax.plot(x, u_pred, 'b-', label=f'PINN (t={t_val:.3f})', linewidth=PLOT_LINEWIDTH_THICK)
         if u_true is not None:
@@ -480,11 +499,12 @@ class Transient1DPlotWidget(BasePlotWidget):
         if u_pred is not None or u_true is not None:
             self.pred_ax.legend(fontsize=PLOT_LEGEND_FONTSIZE)
         self.pred_ax.grid(True, alpha=0.3)
-        self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.pred_figure)
-        self.pred_canvas.draw()
+        self.pred_canvas.draw_idle()
         # --- 标签页2: 误差图 ---
-        self.err_ax.clear()
+        self.err_figure.clear()
+        self.err_ax = self.err_figure.add_subplot(111)
         if u_true is not None and u_pred is not None:
             abs_err = np.abs(u_pred - u_true)
             self.err_ax.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=PLOT_LINEWIDTH_THICK)
@@ -507,9 +527,9 @@ class Transient1DPlotWidget(BasePlotWidget):
             self.err_ax.set_title('1D Error (No data)')
         self.err_ax.set_xlabel('x', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.grid(True, alpha=0.3)
-        self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.err_figure)
-        self.err_canvas.draw()
+        self.err_canvas.draw_idle()
     def set_data(self, model=None, x_range=(0, 1), t_range=(0, 1),
                  exact_func=None, true_func=None, n_points=200):
         self.model = model
@@ -598,7 +618,7 @@ class Transient1DPlotWidget(BasePlotWidget):
             ax.set_ylabel('u(x, t)', fontsize=PLOT_AXIS_LABELSIZE)
             ax.grid(True, alpha=0.3)
         _apply_theme_to_figure(self.figure)
-        self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         self.canvas.draw()
 # ============================================================================
 # 4. 二维稳态问题控件 (2D Steady)
@@ -611,7 +631,7 @@ class Steady2DPlotWidget(BasePlotWidget):
         self._overlay_state = 0
         self._has_true = False
         self._current_data = None
-        self.figure = Figure(figsize=PLOT_FIGSIZE_2D)
+        self.figure = Figure(figsize=PLOT_FIGSIZE_2D, constrained_layout=True)
         self.canvas = FigureCanvasQTAgg(self.figure)
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -641,23 +661,27 @@ class Steady2DPlotWidget(BasePlotWidget):
         Z_pred = data['Z_pred']
         Z_true = data['Z_true']
         # --- 标签页1: 预测解 (3D 曲面) ---
-        self.pred_ax.clear()
+        self.pred_figure.clear()
+        self.pred_ax = self.pred_figure.add_subplot(111, projection='3d')
         if Z_pred is not None:
             surf = self.pred_ax.plot_surface(X, Y, Z_pred, cmap='viridis', edgecolor='none', alpha=0.95)
+            self._clear_colorbars(self.pred_figure)
             self.pred_figure.colorbar(surf, ax=self.pred_ax, shrink=0.5, aspect=10, pad=0.08)
         self.pred_ax.set_title('3D Predicted Solution $u_{pred}(x, y)$', fontsize=PLOT_TITLE_FONTSIZE, fontweight='bold')
         self.pred_ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
         self.pred_ax.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
         self.pred_ax.set_zlabel('u', fontsize=PLOT_AXIS_LABELSIZE)
         self.pred_ax.view_init(elev=30, azim=-60)
-        self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.pred_figure)
-        self.pred_canvas.draw()
+        self.pred_canvas.draw_idle()
         # --- 标签页2: 误差图 (2D 云图) ---
-        self.err_ax.clear()
+        self.err_figure.clear()
+        self.err_ax = self.err_figure.add_subplot(111)
         if Z_pred is not None and Z_true is not None:
             abs_err = np.abs(Z_pred - Z_true)
             cf = self.err_ax.contourf(X, Y, abs_err, levels=PLOT_CONTOUR_LEVELS, cmap='inferno')
+            self._clear_colorbars(self.err_figure)
             self.err_figure.colorbar(cf, ax=self.err_ax, label='Absolute Error $|u_{pred} - u_{true}|$')
             l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
             text_str = (
@@ -676,9 +700,9 @@ class Steady2DPlotWidget(BasePlotWidget):
         self.err_ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.set_aspect('equal')
-        self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.err_figure)
-        self.err_canvas.draw()
+        self.err_canvas.draw_idle()
     def set_data(self, model=None, x_range=(0, 1), y_range=(0, 1), true_func=None, exact_func=None, n_points=100):
         true_func = true_func if true_func is not None else exact_func
         self.figure.clear()
@@ -704,9 +728,11 @@ class Steady2DPlotWidget(BasePlotWidget):
             ax1.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
             ax1.set_zlabel('u', fontsize=PLOT_AXIS_LABELSIZE)
             ax1.view_init(elev=30, azim=-60)
+            self._clear_colorbars(self.figure)
             self.figure.colorbar(surf, ax=ax1, shrink=0.5, aspect=10, pad=0.08)
             abs_err = np.abs(Z_pred - Z_true)
             cf = ax2.contourf(X, Y, abs_err, levels=PLOT_CONTOUR_LEVELS, cmap='inferno')
+            self._clear_colorbars(self.figure)
             self.figure.colorbar(cf, ax=ax2, label='Absolute Error')
             l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
             text_str = (
@@ -725,6 +751,7 @@ class Steady2DPlotWidget(BasePlotWidget):
         elif Z_true is not None:
             ax = self.figure.add_subplot(111, projection='3d')
             surf = ax.plot_surface(X, Y, Z_true, cmap='plasma', edgecolor='none', alpha=0.9)
+            self._clear_colorbars(self.figure)
             self.figure.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
             ax.set_title('Analytical Solution', fontsize=PLOT_TITLE_FONTSIZE, fontweight='bold')
             ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
@@ -735,6 +762,7 @@ class Steady2DPlotWidget(BasePlotWidget):
             # 只有预测
             ax = self.figure.add_subplot(111, projection='3d')
             surf = ax.plot_surface(X, Y, Z_pred, cmap='viridis', edgecolor='none', alpha=0.95)
+            self._clear_colorbars(self.figure)
             self.figure.colorbar(surf, ax=ax, shrink=0.6, aspect=10)
             ax.set_title('Predicted Solution', fontsize=PLOT_TITLE_FONTSIZE, fontweight='bold')
             ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
@@ -746,7 +774,7 @@ class Steady2DPlotWidget(BasePlotWidget):
             ax.text(0.5, 0.5, "无数据", ha='center', va='center', fontsize=PLOT_AXIS_LABELSIZE)
             ax.set_title('No Data', fontsize=PLOT_TITLE_FONTSIZE)
         _apply_theme_to_figure(self.figure)
-        self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         self.canvas.draw()
 # ============================================================================
 # 5. 二维含时问题控件 (2D Transient)
@@ -765,7 +793,7 @@ class Transient2DPlotWidget(BasePlotWidget):
         self.y_range = (0, 1)
         self.t_range = (0, 1)
         self.n_points = 60
-        self.figure = Figure(figsize=PLOT_FIGSIZE_2D)
+        self.figure = Figure(figsize=PLOT_FIGSIZE_2D, constrained_layout=True)
         self.canvas = FigureCanvasQTAgg(self.figure)
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -817,23 +845,27 @@ class Transient2DPlotWidget(BasePlotWidget):
         Z_true = data['Z_true']
         t_val = data.get('t_val', 0.0)
         # --- 标签页1: 预测解 (3D 曲面) ---
-        self.pred_ax.clear()
+        self.pred_figure.clear()
+        self.pred_ax = self.pred_figure.add_subplot(111, projection='3d')
         if Z_pred is not None:
             surf = self.pred_ax.plot_surface(X, Y, Z_pred, cmap='viridis', edgecolor='none', alpha=0.95)
+            self._clear_colorbars(self.pred_figure)
             self.pred_figure.colorbar(surf, ax=self.pred_ax, shrink=0.5, aspect=10, pad=0.08)
         self.pred_ax.set_title(f'3D Predicted $u_{{pred}}$ (t = {t_val:.3f})', fontsize=PLOT_TITLE_FONTSIZE, fontweight='bold')
         self.pred_ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
         self.pred_ax.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
         self.pred_ax.set_zlabel('u', fontsize=PLOT_AXIS_LABELSIZE)
         self.pred_ax.view_init(elev=30, azim=-60)
-        self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.pred_figure)
-        self.pred_canvas.draw()
+        self.pred_canvas.draw_idle()
         # --- 标签页2: 误差图 (2D 云图) ---
-        self.err_ax.clear()
+        self.err_figure.clear()
+        self.err_ax = self.err_figure.add_subplot(111)
         if Z_pred is not None and Z_true is not None:
             abs_err = np.abs(Z_pred - Z_true)
             cf = self.err_ax.contourf(X, Y, abs_err, levels=PLOT_CONTOUR_LEVELS, cmap='inferno')
+            self._clear_colorbars(self.err_figure)
             self.err_figure.colorbar(cf, ax=self.err_ax, label='Absolute Error $|u_{pred} - u_{true}|$')
             l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
             text_str = (
@@ -852,9 +884,9 @@ class Transient2DPlotWidget(BasePlotWidget):
         self.err_ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.set_aspect('equal')
-        self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.err_figure)
-        self.err_canvas.draw()
+        self.err_canvas.draw_idle()
     def set_data(self, model=None, x_range=(0, 1), y_range=(0, 1), t_range=(0, 1),
                  exact_func=None, true_func=None, n_points=80):
         self.model = model
@@ -897,9 +929,11 @@ class Transient2DPlotWidget(BasePlotWidget):
             ax1.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
             ax1.set_zlabel('u', fontsize=PLOT_AXIS_LABELSIZE)
             ax1.view_init(elev=30, azim=-60)
+            self._clear_colorbars(self.figure)
             self.figure.colorbar(surf, ax=ax1, shrink=0.5, aspect=10, pad=0.08)
             abs_err = np.abs(Z_pred - Z_true)
             cf = ax2.contourf(X, Y, abs_err, levels=PLOT_CONTOUR_LEVELS, cmap='inferno')
+            self._clear_colorbars(self.figure)
             self.figure.colorbar(cf, ax=ax2, label='Absolute Error')
             l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
             text_str = (
@@ -918,6 +952,7 @@ class Transient2DPlotWidget(BasePlotWidget):
         elif Z_true is not None:
             ax = self.figure.add_subplot(111, projection='3d')
             surf = ax.plot_surface(X, Y, Z_true, cmap='plasma', edgecolor='none', alpha=0.9)
+            self._clear_colorbars(self.figure)
             self.figure.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
             ax.set_title(f'Analytical Solution (t = {t_val:.3f})', fontsize=PLOT_TITLE_FONTSIZE, fontweight='bold')
             ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
@@ -927,6 +962,7 @@ class Transient2DPlotWidget(BasePlotWidget):
         elif Z_pred is not None:
             ax = self.figure.add_subplot(111, projection='3d')
             surf = ax.plot_surface(X, Y, Z_pred, cmap='viridis', edgecolor='none', alpha=0.95)
+            self._clear_colorbars(self.figure)
             self.figure.colorbar(surf, ax=ax, shrink=0.6, aspect=10)
             ax.set_title(f'Predicted Solution (t = {t_val:.3f})', fontsize=PLOT_TITLE_FONTSIZE, fontweight='bold')
             ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
@@ -940,5 +976,5 @@ class Transient2DPlotWidget(BasePlotWidget):
             ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
             ax.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
         _apply_theme_to_figure(self.figure)
-        self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
+        # self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         self.canvas.draw()
