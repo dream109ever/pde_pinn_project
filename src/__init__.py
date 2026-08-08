@@ -1,28 +1,19 @@
+# src/__init__.py
 """
-src/__init__.py
+PINN 偏微分方程求解器核心模块。
 
 本模块将 src 包中的核心功能提升到顶层命名空间，对外提供简洁一致的接口。
-使用者只需通过 `from src import *` 
-即可获得所有关键组件，无需关心内部模块的具体组织方式。
+使用者只需通过 ``from src import *`` 即可获得所有关键组件，
+无需关心内部模块的具体组织方式。
 
-公开接口（即 __all__ 列表中的符号）：
-    - InputParser        : 输入数据解析器（系数、源项、边界条件）
-    - LossGenerator      : PINN 损失函数生成器
-    - AnalyticalSolverHub: 解析解/基准解生成器
-    - solve_pde          : 主求解入口
-
-    - build_model        : 自动构建神经网络（含复杂度分析）
-    
-    - DomainSampler      : 采样点生成器
-
-    - PINNTrainer        : PINN 训练器
-
-    - quick_plot_from_trainer: 快速绘制训练结果
-
-此设计便于模块化开发与重构，同时降低外部代码的耦合度。
+:mod:`src` 包提供以下核心功能：
+    - PDE 输入解析与损失函数生成 (:mod:`function_factory`)
+    - 神经网络自动构建与复杂度分析 (:mod:`network_factory`)
+    - 采样点生成 (:mod:`data_utils`)
+    - PINN 训练管理 (:mod:`trainer`)
+    - 绘图核心逻辑与 Qt/Notebook 可视化 (:mod:`plotting_core`, :mod:`visualization`, :mod:`plotting_qt`)
 """
 
-# 从各个子模块导入需要暴露的公共接口
 from .function_factory import (
     InputParser,
     LossGenerator,

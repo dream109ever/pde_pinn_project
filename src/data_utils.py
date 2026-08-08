@@ -1,17 +1,33 @@
+# src/data_utils.py
+"""
+采样点生成模块。
+
+提供矩形定义域（1D/2D 空间，含/不含时间）内的采样点生成功能。
+支持内部点、边界点（按边返回）、初始条件点采样，以及一次性生成所有点。
+"""
 import torch
 from typing import Optional, Tuple, Dict, List, Union
 
 class DomainSampler:
     """
     采样点生成器，支持矩形定义域（1D/2D 空间，含/不含时间）。
-    
+
     功能：
         - sample_interior: 内部点采样
         - sample_boundary: 边界点采样（按边返回字典）
         - sample_initial: 初始条件点采样
         - sample_all: 一次性生成所有需要的点（内部 + 边界 + 初始）
-    
+
     输出格式统一为 torch.Tensor，形状为 (n_points, dim)
+
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: Tuple[float, float]
+
+    :param y_range: y 轴范围 (y_min, y_max)，若为 None 表示一维空间
+    :type y_range: Optional[Tuple[float, float]]
+
+    :param t_range: t 轴范围 (t_min, t_max)，若为 None 表示稳态问题
+    :type t_range: Optional[Tuple[float, float]]
     """
     def __init__(
         self,
@@ -19,12 +35,6 @@ class DomainSampler:
         y_range: Optional[Tuple[float, float]] = None,
         t_range: Optional[Tuple[float, float]] = None,
     ):
-        """
-        参数:
-            x_range: (x_min, x_max)，必须
-            y_range: (y_min, y_max)，若为 None 表示一维空间
-            t_range: (t_min, t_max)，若为 None 表示稳态问题
-        """
         self.x_min, self.x_max = x_range
         self.has_y = y_range is not None
         if self.has_y:
@@ -41,24 +51,53 @@ class DomainSampler:
             self.side_labels = ["left", "right"]
     @property
     def dim(self) -> int:
-        """返回点的总维度"""
+        """返回点的总维度。"""
         return self.total_dim
     def _random_in_range(self, n: int, low: float, high: float) -> torch.Tensor:
-        """生成 [low, high] 范围内的随机点"""
+        """
+        生成 [low, high] 范围内的随机点。
+
+        :param n: 采样点数
+        :type n: int
+        :param low: 下界
+        :type low: float
+        :param high: 上界
+        :type high: float
+        :return: (n, 1) 形状的张量
+        :rtype: torch.Tensor
+        """
         return torch.rand(n, 1) * (high - low) + low
     def _full_value(self, n: int, value: float) -> torch.Tensor:
-        """生成全为 value 的张量"""
+        """
+        生成全为 value 的张量。
+
+        :param n: 采样点数
+        :type n: int
+        :param value: 填充值
+        :type value: float
+        :return: (n, 1) 形状的张量
+        :rtype: torch.Tensor
+        """
         return torch.full((n, 1), value)
     def _build_points(self, components: List[torch.Tensor]) -> torch.Tensor:
-        """拼接多个分量张量"""
+        """
+        拼接多个分量张量为完整坐标张量。
+
+        :param components: 各维度分量张量列表
+        :type components: List[torch.Tensor]
+        :return: (n_points, dim) 形状的坐标张量
+        :rtype: torch.Tensor
+        """
         return torch.cat(components, dim=1)
     # ============ 内部点采样 ============
     def sample_interior(self, n_points: int) -> torch.Tensor:
         """
         在定义域内部随机采样。
-        
-        返回:
-            points: (n_points, dim) 坐标张量
+
+        :param n_points: 采样点数
+        :type n_points: int
+        :return: (n_points, dim) 坐标张量
+        :rtype: torch.Tensor
         """
         components = [self._random_in_range(n_points, self.x_min, self.x_max)]
         if self.has_y:
@@ -76,13 +115,17 @@ class DomainSampler:
         """
         在矩形边界上按边采样。
 
-        参数:
-            n_points_per_side: 每条边的采样点数
-            sides: 要采样的边列表，如 ["left", "right"]，默认为所有边
-            with_time: 若含时间，是否在时间维度上随机采样（True）还是固定在 t_min（False）
+        :param n_points_per_side: 每条边的采样点数
+        :type n_points_per_side: int
 
-        返回:
-            Dict[str, torch.Tensor]: 键为边名，值为 (n_points, dim) 坐标张量
+        :param sides: 要采样的边列表，如 ["left", "right"]，默认为所有边
+        :type sides: Optional[List[str]]
+
+        :param with_time: 若含时间，是否在时间维度上随机采样（True）还是固定在 t_min（False）
+        :type with_time: bool
+
+        :return: 键为边名，值为 (n_points, dim) 坐标张量的字典
+        :rtype: Dict[str, torch.Tensor]
         """
         if sides is None:
             sides = self.side_labels
@@ -119,8 +162,10 @@ class DomainSampler:
         """
         采样初始条件点 (t = t_min)。
 
-        返回:
-            points: (n_points, dim) 坐标张量
+        :param n_points: 采样点数
+        :type n_points: int
+        :return: (n_points, dim) 坐标张量
+        :rtype: torch.Tensor
         """
         if not self.has_t:
             raise ValueError("没有时间维度，无法采样初始条件。")
@@ -137,16 +182,19 @@ class DomainSampler:
         n_points: int,
     ) -> torch.Tensor:
         """
-        采样 axis = value 的超平面上的点。
-        用于 Neumann 边界条件或固定边界。
+        采样 axis = value 的超平面上的点，用于 Neumann 边界条件或固定边界。
 
-        参数:
-            axis: 'x' | 'y' | 't'
-            value: 轴上的固定值
-            n_points: 采样点数
+        :param axis: 轴名称，'x' | 'y' | 't'
+        :type axis: str
 
-        返回:
-            points: (n_points, dim) 坐标张量
+        :param value: 轴上的固定值
+        :type value: float
+
+        :param n_points: 采样点数
+        :type n_points: int
+
+        :return: (n_points, dim) 坐标张量
+        :rtype: torch.Tensor
         """
         if axis == 'x':
             components = [self._full_value(n_points, value)]
@@ -182,24 +230,30 @@ class DomainSampler:
         """
         一次性生成内部点、边界点、初始条件点。
 
-        参数:
-            n_interior: 内部点数量
-            n_boundary_per_side: 每条边的边界点数量
-            n_initial: 初始条件点数量（仅含时间时有效）
-            return_structured: True 返回字典，False 返回元组
+        :param n_interior: 内部点数量
+        :type n_interior: int
 
-        返回:
-            若 return_structured=True::
+        :param n_boundary_per_side: 每条边的边界点数量
+        :type n_boundary_per_side: int
+
+        :param n_initial: 初始条件点数量（仅含时间时有效）
+        :type n_initial: int
+
+        :param return_structured: True 返回字典，False 返回元组
+        :type return_structured: bool
+
+        :return:
+            - 若 return_structured=True::
 
                 {
                     'interior': points,
                     'boundary': {'left': points, 'right': points, ...},
                     'initial': points or None
                 }
-            
-            若 return_structured=False:
-                (interior_points, boundary_points, initial_points)
-                boundary_points 为字典
+
+            - 若 return_structured=False: (interior_points, boundary_points, initial_points)
+              boundary_points 为字典
+        :rtype: Union[Dict[str, torch.Tensor], Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor]]
         """
         result = {
             'interior': self.sample_interior(n_interior),
@@ -210,14 +264,26 @@ class DomainSampler:
             return result
         return result['interior'], result['boundary'], result['initial']
 
-# ============ 便捷函数 ============
 def get_interior_points(
     n_points: int,
     x_range: Tuple[float, float],
     y_range: Optional[Tuple[float, float]] = None,
     t_range: Optional[Tuple[float, float]] = None,
 ) -> torch.Tensor:
-    """便捷函数：获取内部点"""
+    """
+    便捷函数：获取内部点。
+
+    :param n_points: 采样点数
+    :type n_points: int
+    :param x_range: x 轴范围
+    :type x_range: Tuple[float, float]
+    :param y_range: y 轴范围，可选
+    :type y_range: Optional[Tuple[float, float]]
+    :param t_range: t 轴范围，可选
+    :type t_range: Optional[Tuple[float, float]]
+    :return: (n_points, dim) 坐标张量
+    :rtype: torch.Tensor
+    """
     sampler = DomainSampler(x_range, y_range, t_range)
     return sampler.sample_interior(n_points)
 def get_boundary_points(
@@ -227,7 +293,22 @@ def get_boundary_points(
     t_range: Optional[Tuple[float, float]] = None,
     sides: Optional[List[str]] = None,
 ) -> Dict[str, torch.Tensor]:
-    """便捷函数：获取边界点（按边返回字典）"""
+    """
+    便捷函数：获取边界点（按边返回字典）。
+
+    :param n_points_per_side: 每条边的采样点数
+    :type n_points_per_side: int
+    :param x_range: x 轴范围
+    :type x_range: Tuple[float, float]
+    :param y_range: y 轴范围，可选
+    :type y_range: Optional[Tuple[float, float]]
+    :param t_range: t 轴范围，可选
+    :type t_range: Optional[Tuple[float, float]]
+    :param sides: 要采样的边列表，默认为所有边
+    :type sides: Optional[List[str]]
+    :return: 键为边名，值为坐标张量的字典
+    :rtype: Dict[str, torch.Tensor]
+    """
     sampler = DomainSampler(x_range, y_range, t_range)
     return sampler.sample_boundary(n_points_per_side, sides=sides)
 def get_initial_points(
@@ -236,7 +317,20 @@ def get_initial_points(
     y_range: Optional[Tuple[float, float]] = None,
     t_range: Tuple[float, float] = (0.0, 1.0),
 ) -> torch.Tensor:
-    """便捷函数：获取初始条件点"""
+    """
+    便捷函数：获取初始条件点。
+
+    :param n_points: 采样点数
+    :type n_points: int
+    :param x_range: x 轴范围
+    :type x_range: Tuple[float, float]
+    :param y_range: y 轴范围，可选
+    :type y_range: Optional[Tuple[float, float]]
+    :param t_range: t 轴范围，默认为 (0.0, 1.0)
+    :type t_range: Tuple[float, float]
+    :return: (n_points, dim) 坐标张量
+    :rtype: torch.Tensor
+    """
     sampler = DomainSampler(x_range, y_range, t_range)
     return sampler.sample_initial(n_points)
 def get_all_points(
@@ -247,11 +341,27 @@ def get_all_points(
     y_range: Optional[Tuple[float, float]] = None,
     t_range: Optional[Tuple[float, float]] = None,
 ) -> Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]:
-    """便捷函数：一次性获取所有采样点"""
+    """
+    便捷函数：一次性获取所有采样点。
+
+    :param n_interior: 内部点数量
+    :type n_interior: int
+    :param n_boundary_per_side: 每条边的边界点数量
+    :type n_boundary_per_side: int
+    :param n_initial: 初始条件点数量
+    :type n_initial: int
+    :param x_range: x 轴范围
+    :type x_range: Tuple[float, float]
+    :param y_range: y 轴范围，可选
+    :type y_range: Optional[Tuple[float, float]]
+    :param t_range: t 轴范围，可选
+    :type t_range: Optional[Tuple[float, float]]
+    :return: 包含 'interior', 'boundary', 'initial' 的字典
+    :rtype: Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]
+    """
     sampler = DomainSampler(x_range, y_range, t_range)
     return sampler.sample_all(n_interior, n_boundary_per_side, n_initial)
 
-# 使用示例
 if __name__ == "__main__":
     print("=" * 60)
     print("DomainSampler 使用示例")

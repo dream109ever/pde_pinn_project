@@ -1,3 +1,10 @@
+# src/network_factory.py
+"""
+神经网络智能构建模块。
+
+提供基于问题复杂度的网络架构自动推荐与构建功能。
+包含自定义正弦激活函数、复杂度分析器、网络配置生成器和网络构建工厂。
+"""
 import re
 import torch
 import inspect
@@ -5,26 +12,28 @@ import sympy as sp
 import torch.nn as nn
 from typing import Union, Callable, Dict, List, Optional
 
-# ============================================================================
-# 0. 基础自定义激活函数
-# ============================================================================
 class SineActivation(nn.Module):
     """
     正弦激活函数（SIREN 架构的核心）。
+
     在 PINN 中求解高频振荡、强非线性或具有陡峭梯度的物理问题时，
     正弦激活函数能够有效打破传统 Tanh/ReLU 的“光谱偏差”现象，加速高频分量收敛。
+
+    :param omega_0: 正弦函数的角频率缩放因子，默认 30.0
+    :type omega_0: float
     """
     def __init__(self, omega_0: float = 30.0):
         super().__init__()
         self.omega_0 = omega_0
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.sin(self.omega_0 * x)
-# ============================================================================
-# 1. 复杂度分析器
-# ============================================================================
+
 class ComplexityAnalyzer:
     """
     分析 PDE 方程及其边界条件的复杂度，生成评分用于自动选择网络规模。
+
+    :param weights: 各项权重配置，可选
+    :type weights: Optional[Dict[str, float]]
     """
     def __init__(self, weights: Optional[Dict[str, float]] = None):
         self.weights = weights or {
@@ -40,8 +49,14 @@ class ComplexityAnalyzer:
         }
     # ---------- 表达式复杂度评估 ----------
     def _expr_complexity(self, expr: Union[int, float, str, Callable, sp.Expr]) -> float:
-        """评估单个表达式的复杂度分数"""
-        # 统一规范化：尝试将字符串数字直接转化为数字，消除格式双标
+        """
+        评估单个表达式的复杂度分数。
+
+        :param expr: 待评估的表达式
+        :type expr: Union[int, float, str, Callable, sp.Expr]
+        :return: 复杂度分数
+        :rtype: float
+        """
         if isinstance(expr, str):
             try: expr = float(expr.strip())
             except ValueError: pass
@@ -55,7 +70,14 @@ class ComplexityAnalyzer:
             return self._callable_complexity(expr)
         return 3.0
     def _string_complexity(self, expr: str) -> float:
-        """分析字符串表达式的复杂度，包含高频因子提取机制"""
+        """
+        分析字符串表达式的复杂度，包含高频因子提取机制。
+
+        :param expr: 表达式字符串
+        :type expr: str
+        :return: 复杂度分数
+        :rtype: float
+        """
         score = 2.0
         special_funcs = ['sin', 'cos', 'tan', 'exp', 'log', 'sqrt', 'abs', 'sinh', 'cosh', 'tanh']
         # 1. 基础特殊函数统计
@@ -77,7 +99,14 @@ class ComplexityAnalyzer:
             score += 0.5
         return min(score, 50.0)
     def _sympy_complexity(self, expr: sp.Expr) -> float:
-        """分析 SymPy 表达式的复杂度"""
+        """
+        分析 SymPy 表达式的复杂度。
+
+        :param expr: SymPy 表达式
+        :type expr: sp.Expr
+        :return: 复杂度分数
+        :rtype: float
+        """
         if expr.is_Number:
             return 1.0
         score = 1.0
@@ -94,7 +123,14 @@ class ComplexityAnalyzer:
         expr_str = str(expr)
         return self._string_complexity(expr_str)
     def _callable_complexity(self, expr: Callable) -> float:
-        """分析自定义可调用对象的复杂度"""
+        """
+        分析自定义可调用对象的复杂度。
+
+        :param expr: 可调用对象
+        :type expr: Callable
+        :return: 复杂度分数
+        :rtype: float
+        """
         try: return self._string_complexity(inspect.getsource(expr).strip())
         except: return 6.0
     # ---------- 主计算接口 ----------
@@ -109,24 +145,27 @@ class ComplexityAnalyzer:
         """
         计算总复杂度分数。
 
-        参数:
-            coeffs: 系数
-                一维 ODE 使用 list，如 [2, 2, 1] 表示 u'' + 2u' + 2u。
+        :param coeffs: 方程系数
+            - 一维 ODE 使用 list，如 [2, 2, 1] 表示 u'' + 2u' + 2u
+            - PDE 使用 dict，如 {'u_xx': 1.0, 'u_yy': 1.0}
+        :type coeffs: Union[Dict[str, Union[float, str, Callable]], List[Union[float, str, Callable]], float]
 
-                PDE 使用 dict，如 {'u_xx': 1.0, 'u_yy': 1.0}。
-            
-            source_term: 源项，可为常数、字符串表达式或可调用对象
-            conditions: 边界条件列表，每个条件为 dict
+        :param source_term: 源项，可为常数、字符串表达式或可调用对象
+        :type source_term: Union[float, str, Callable]
 
-                格式: {'location': 'left', 'type': 'dirichlet', 'value': 0.0}
+        :param conditions: 边界条件列表，每个条件为 dict
+            - 格式: {'location': 'left', 'type': 'dirichlet', 'value': 0.0}
+            - 或对于 ODE: {'point': 0.0, 'value': 0.0, 'derivative': 0}
+        :type conditions: Optional[List[Dict]]
 
-                或对于 ODE: {'point': 0.0, 'value': 0.0, 'derivative': 0}
-            
-            has_t: 是否含时间变量
-            dimension: 空间维度，1 或 2
-        
-        返回:
-            float: 复杂度分数
+        :param has_t: 是否含时间变量
+        :type has_t: bool
+
+        :param dimension: 空间维度，1 或 2
+        :type dimension: int
+
+        :return: 复杂度分数
+        :rtype: float
         """
         total_score = 0.0
         pde_weight = self.weights['pde_coeff']
@@ -159,30 +198,28 @@ class ComplexityAnalyzer:
                 for key in ['value', 'coefficient', 'alpha', 'beta', 'gamma']:
                     if key in cond:
                         total_score += bc_weight * self._expr_complexity(cond[key])
-                # 识别导数边界条件 (Neumann / Robin / 指定了导数阶数)
                 c_type = str(cond.get('type', '')).lower()
                 if 'neumann' in c_type or 'robin' in c_type or cond.get('derivative', 0) > 0:
                     total_score += self.weights.get('derivative_bc_penalty', 8.0)
         return total_score
-# ============================================================================
-# 2. 网络配置生成器
-# ============================================================================
+
 class NetworkConfigGenerator:
     """
     根据复杂度分数，智能化生成与之匹配的网络层级与激活函数配置。
+
+    :param base_config: 基础配置，如 {'batch_norm': False, 'init_method': 'xavier'}
+    :type base_config: Optional[Dict]
+
+    :param mapping: 可调用对象，接收分数返回配置字典
+    :type mapping: Optional[Callable[[float], Dict]]
     """
     def __init__(self, base_config: Optional[Dict] = None, mapping: Optional[Callable[[float], Dict]] = None,):
-        """
-        参数:
-            base_config: 基础配置，如 {'batch_norm': False, 'init_method': 'xavier'}
-
-            mapping: 可调用对象，接收分数返回配置字典
-        """
         self.base_config = base_config or {}
         self.mapping = mapping or self._default_mapping
     def _default_mapping(self, score: float) -> Dict:
         """
         分段动态拓扑映射表。
+
         全面放大了隐藏层神经元基数，防止复杂/多维场景下 PINN 发生严重欠拟合。
         """
         if score < 15:
@@ -209,23 +246,22 @@ class NetworkConfigGenerator:
     def generate_config(self, score: float, input_dim: int, output_dim: int = 1) -> Dict:
         """
         生成完整的网络配置。
-        
-        参数:
-            score: 复杂度分数
-            input_dim: 输入维度
-            output_dim: 输出维度
-        
-        返回:
-            Dict: 完整网络配置
+
+        :param score: 复杂度分数
+        :type score: float
+        :param input_dim: 输入维度
+        :type input_dim: int
+        :param output_dim: 输出维度，默认为 1
+        :type output_dim: int
+        :return: 完整网络配置
+        :rtype: Dict
         """
         config = self.mapping(score)
         config.update(self.base_config)
         config['input_dim'] = input_dim
         config['output_dim'] = output_dim
         return config
-# ============================================================================
-# 3. 网络构建器
-# ============================================================================
+
 def build_network(
     input_dim: int,
     output_dim: int,
@@ -237,18 +273,23 @@ def build_network(
 ) -> nn.Sequential:
     """
     构建全连接神经网络，无缝支持 Sine 激活函数的注入与权重初始化适配。
-    
-    参数:
-        input_dim: 输入特征数
-        output_dim: 输出特征数
-        hidden_dims: 每层隐藏层神经元数，如 [64, 64, 32]
-        activation: 激活函数，支持 'tanh', 'relu', 'sigmoid', 'sin', 'leaky_relu'
-        batch_norm: 是否添加 BatchNorm1d
-        init_method: 权重初始化 'xavier' | 'kaiming' | 'normal'
-        dropout: Dropout 概率，0 表示不使用
-    
-    返回:
-        nn.Sequential: 构建好的模型
+
+    :param input_dim: 输入特征数
+    :type input_dim: int
+    :param output_dim: 输出特征数
+    :type output_dim: int
+    :param hidden_dims: 每层隐藏层神经元数，如 [64, 64, 32]
+    :type hidden_dims: List[int]
+    :param activation: 激活函数，支持 'tanh', 'relu', 'sigmoid', 'sin', 'leaky_relu', 'gelu'
+    :type activation: str
+    :param batch_norm: 是否添加 BatchNorm1d
+    :type batch_norm: bool
+    :param init_method: 权重初始化，'xavier' | 'kaiming' | 'normal'
+    :type init_method: str
+    :param dropout: Dropout 概率，0 表示不使用
+    :type dropout: float
+    :return: 构建好的模型
+    :rtype: nn.Sequential
     """
     act_dict = {
         'tanh': nn.Tanh(),
@@ -271,12 +312,9 @@ def build_network(
         prev_dim = h_dim
     layers.append(nn.Linear(prev_dim, output_dim))
     model = nn.Sequential(*layers)
-    # 针对不同激活函数采用配套的最优初始化策略
     def init_weights(m):
         if isinstance(m, nn.Linear):
             if activation.lower() == 'sin':
-                # SIREN 专属初始化原则：第一层与后续层的分布宽度需经专门缩放
-                # 简单处理采用较窄的均匀分布，防止正弦激活进入饱和死区
                 num_input = m.weight.size(1)
                 m.weight.data.uniform_(-1.0 / num_input, 1.0 / num_input)
             else:
@@ -290,16 +328,25 @@ def build_network(
                 nn.init.zeros_(m.bias)
     model.apply(init_weights)
     return model
+
 class NetworkFactory:
     """网络工厂，从配置字典构建模型"""
     def __init__(self, config: Dict):
         """
-        参数:
-            config: 必须包含 input_dim, output_dim, hidden_dims
-                  可选 activation, batch_norm, init_method, dropout
-        """
+    网络工厂，从配置字典构建模型。
+
+    :param config: 配置字典，必须包含 input_dim, output_dim, hidden_dims
+                   可选 activation, batch_norm, init_method, dropout
+    :type config: Dict
+    """
         self.config = config 
     def build(self) -> nn.Sequential:
+        """
+        根据配置构建网络。
+
+        :return: 构建好的模型
+        :rtype: nn.Sequential
+        """
         return build_network(
             input_dim=self.config['input_dim'],
             output_dim=self.config['output_dim'],
@@ -309,9 +356,7 @@ class NetworkFactory:
             init_method=self.config.get('init_method', 'xavier'),
             dropout=self.config.get('dropout', 0.0),
         )
-# ============================================================================
-# 4. 高层便捷函数
-# ============================================================================
+
 def build_model(
     coeffs: Union[Dict, List, float],
     source_term: Union[float, str, Callable] = 0.0,
@@ -325,20 +370,36 @@ def build_model(
 ) -> nn.Sequential:
     """
     一站式构建模型：自动分析复杂度，生成配置，构建网络。
-    
-    参数:
-        coeffs: 系数（dict 或 list 或 float）
-        source_term: 源项
-        conditions: 边界条件列表
-        has_t: 是否含时间
-        dimension: 空间维度
-        input_dim: 输入维度（若为 None，自动从 dimension 和 has_t 推断）
-        output_dim: 输出维度，默认为 1
-        base_config: 基础网络配置
-        verbose: 是否打印复杂度分数
-    
-    返回:
-        nn.Sequential: 构建好的模型
+
+    :param coeffs: 系数（dict 或 list 或 float）
+    :type coeffs: Union[Dict, List, float]
+
+    :param source_term: 源项
+    :type source_term: Union[float, str, Callable]
+
+    :param conditions: 边界条件列表
+    :type conditions: Optional[List[Dict]]
+
+    :param has_t: 是否含时间
+    :type has_t: bool
+
+    :param dimension: 空间维度
+    :type dimension: int
+
+    :param input_dim: 输入维度（若为 None，自动从 dimension 和 has_t 推断）
+    :type input_dim: Optional[int]
+
+    :param output_dim: 输出维度，默认为 1
+    :type output_dim: int
+
+    :param base_config: 基础网络配置
+    :type base_config: Optional[Dict]
+
+    :param verbose: 是否打印复杂度分数
+    :type verbose: bool
+
+    :return: 构建好的模型
+    :rtype: nn.Sequential
     """
     if input_dim is None:
         input_dim = dimension + (1 if has_t else 0)
@@ -360,6 +421,7 @@ def build_model(
         print(f"[NetworkFactory] 适配激活函数类型: '{config['activation']}'")
     factory = NetworkFactory(config)
     return factory.build()
+
 def suggest_network(
     coeffs: Union[Dict, List, float],
     source_term: Union[float, str, Callable] = 0.0,
@@ -371,9 +433,30 @@ def suggest_network(
 ) -> Dict:
     """
     仅建议网络配置，不实际构建模型。
-    
-    返回:
-        Dict: 建议的网络配置
+
+    :param coeffs: 系数（dict 或 list 或 float）
+    :type coeffs: Union[Dict, List, float]
+
+    :param source_term: 源项
+    :type source_term: Union[float, str, Callable]
+
+    :param conditions: 边界条件列表
+    :type conditions: Optional[List[Dict]]
+
+    :param has_t: 是否含时间
+    :type has_t: bool
+
+    :param dimension: 空间维度
+    :type dimension: int
+
+    :param input_dim: 输入维度（若为 None，自动从 dimension 和 has_t 推断）
+    :type input_dim: Optional[int]
+
+    :param verbose: 是否打印配置信息
+    :type verbose: bool
+
+    :return: 建议的网络配置
+    :rtype: Dict
     """
     if input_dim is None:
         input_dim = dimension + (1 if has_t else 0) 
@@ -390,9 +473,7 @@ def suggest_network(
     if verbose:
         print(f"[NetworkFactory] 独立配置建议: {config}")
     return config
-# ============================================================================
-# 5. 使用示例
-# ============================================================================
+
 if __name__ == "__main__":
     print("=== 用例 1：常规一维低阶常系数稳态 ODE (简单) ===")
     model_1 = build_model(
@@ -421,11 +502,11 @@ if __name__ == "__main__":
     print("\n=== 用例 3：包含 50Hz 超高频振荡项的瞬态波动 PDE ===")
     model_3 = build_model(
         coeffs={'u_xx': 1.0, 'u_yy': 1.0},
-        source_term='sin(50.0*pi*x) * cos(30.0*pi*y)', # 自动触发正则高频提取引擎
+        source_term='sin(50.0*pi*x) * cos(30.0*pi*y)',
         conditions=[
             {'side': 'left', 'type': 'neumann', 'value': '0'},
             {'side': 'right', 'type': 'neumann', 'value': '0'}
         ],
         dimension=2,
-        has_t=True # 附加时间维
+        has_t=True
     )

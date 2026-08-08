@@ -1,6 +1,7 @@
 # src/plotting_qt.py
 """
-PINN 求解器 Qt 可视化控件模块
+PINN 求解器 Qt 可视化控件模块。
+
 提供集成于 PyQt5/PySide 界面中的 Matplotlib 绘图画布控件，支持：
 1. Training Loss 曲线实时/离线绘制
 2. 1D 稳态/含时问题的双子图对比 (曲线 + 绝对误差)
@@ -11,7 +12,7 @@ PINN 求解器 Qt 可视化控件模块
 
 import torch
 import numpy as np
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QPushButton, QTabWidget
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QTabWidget
 from PyQt5.QtCore import Qt
 import matplotlib
 import matplotlib.pyplot as plt
@@ -29,40 +30,41 @@ matplotlib.use('Qt5Agg')
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'PingFang SC', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
 
-# ============================================================================
+
 # 全局样式常量（统一控制字体、线条、图例等大小）
-# ============================================================================
-# 图表尺寸
+
 PLOT_FIGSIZE_LOSS = (6, 4)      # Loss 曲线尺寸
 PLOT_FIGSIZE_1D = (10, 4.5)     # 1D 稳态/含时尺寸
 PLOT_FIGSIZE_2D = (11, 5)       # 2D 稳态/含时尺寸
-# 字体大小
-PLOT_TITLE_FONTSIZE = 7        # 标题字体
-PLOT_AXIS_LABELSIZE = 7        # 坐标轴标签字体
+PLOT_TITLE_FONTSIZE = 7         # 标题字体
+PLOT_AXIS_LABELSIZE = 7         # 坐标轴标签字体
 PLOT_TICK_LABELSIZE = 7         # 刻度标签字体
 PLOT_LEGEND_FONTSIZE = 7        # 图例字体
 PLOT_TEXTBOX_FONTSIZE = 8       # Text Box 内部字体
-# 线条粗细
 PLOT_LINEWIDTH = 0.6            # 主线条宽度
 PLOT_LINEWIDTH_THICK = 0.8      # 较粗线条（如误差填充线）
 PLOT_LINEWIDTH_THIN = 0.4       # 较细线条（如辅助线）
-# 其他
 PLOT_CONTOUR_LEVELS = 50        # 等高线层数
 PLOT_MARGIN_LEFT = 0.10
 PLOT_MARGIN_RIGHT = 0.95
 PLOT_MARGIN_TOP = 0.90
 PLOT_MARGIN_BOTTOM = 0.12
-# ============================================================================
+
 # 0. 控件基类（统一处理 Qt 控件样式，避免重复代码）
-# ============================================================================
 class BasePlotWidget(QWidget):
     """
     所有绘图控件的基类，提供统一的 apply_theme 方法。
+
     子类只需在 __init__ 中创建 slider / label / tab_widget 等属性，
     基类会自动应用样式。
     """
     def apply_theme(self, theme):
-        """外部调用，传入 theme 对象来更新 Qt 控件样式"""
+        """
+        外部调用，传入 theme 对象来更新 Qt 控件样式。
+
+        :param theme: 主题对象，需包含 btn_border, btn_hover_bg, text_primary, card_bg, btn_bg, btn_hover_text 等属性
+        :type theme: Theme
+        """
         if theme is None:
             return
         # ---- QSlider 样式 ----
@@ -126,6 +128,12 @@ class BasePlotWidget(QWidget):
         if hasattr(self, 'tab_widget') and self.tab_widget is not None:
             self.tab_widget.setStyleSheet(tab_style)
     def _clear_colorbars(self, fig):
+        """
+        清除 Figure 中已有的 colorbar 轴。
+
+        :param fig: 需要清理的 Figure 对象
+        :type fig: matplotlib.figure.Figure
+        """
         if fig is None:
             fig = self.figure
         for ax in list(fig.axes):
@@ -141,11 +149,15 @@ class BasePlotWidget(QWidget):
         fig.set_layout_engine('none')
         fig.set_layout_engine('constrained')
         fig.canvas.draw_idle()
-# ============================================================================
+
 # 1. Training Loss 曲线控件
-# ============================================================================
 def _apply_theme_to_figure(fig):
-    """统一为 Figure 和所有 Axes 应用主题背景色"""
+    """
+    统一为 Figure 和所有 Axes 应用主题背景色。
+
+    :param fig: 要应用主题的 Figure 对象
+    :type fig: matplotlib.figure.Figure
+    """
     try:
         from ui.theme_manager import ThemeManager
         import re
@@ -172,8 +184,9 @@ def _apply_theme_to_figure(fig):
             ax.tick_params(colors=fg, labelcolor=fg)
     except:
         pass
+
 class LossPlotWidget(QWidget):
-    """训练 Loss 曲线可视化控件"""
+    """训练 Loss 曲线可视化控件。"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.figure = Figure(figsize=PLOT_FIGSIZE_LOSS, constrained_layout=True)
@@ -187,7 +200,6 @@ class LossPlotWidget(QWidget):
         self.ax.set_xlabel('Epoch / Iteration', fontsize=PLOT_AXIS_LABELSIZE)
         self.ax.set_ylabel('Loss', fontsize=PLOT_AXIS_LABELSIZE)
         self.ax.grid(True, which='both', linestyle='--', alpha=0.3)
-        # self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         self.placeholder_text = self.ax.text(
             0.5, 0.5, "等待训练数据...", ha='center', va='center',
             fontsize=PLOT_AXIS_LABELSIZE, color='gray', transform=self.ax.transAxes
@@ -199,7 +211,12 @@ class LossPlotWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.canvas)
     def update_plot(self, history: Union[Dict[str, List[float]], List[float]]):
-        """更新损失曲线（只更新数据，不重建整图）"""
+        """
+        更新损失曲线（只更新数据，不重建整图）。
+
+        :param history: 损失历史，可以是字典 {'loss_name': [values]} 或列表
+        :type history: Union[Dict[str, List[float]], List[float]]
+        """
         if self.placeholder_text is not None:
             self.placeholder_text.remove()
             self.placeholder_text = None
@@ -241,29 +258,32 @@ class LossPlotWidget(QWidget):
                     self.ax.set_ylim(1e-7, y_max * 2)
         _apply_theme_to_figure(self.figure)
         self.canvas.draw()
-# ============================================================================
+
 # 2. 一维稳态问题控件 (1D Steady)
-# ============================================================================
 class Steady1DPlotWidget(BasePlotWidget):
     """
-    一维稳态问题可视化控件
-    - 支持三种布局模式:
-      * 'horizontal': 左右并排 (预测+误差)
-      * 'vertical': 上下并排 (预测+误差)
-      * 'overlay': 叠加切换 (通过左上角按钮切换显示预测或误差)
+    一维稳态问题可视化控件。
+
+    支持三种布局模式:
+        - 'horizontal': 左右并排 (预测+误差)
+        - 'vertical': 上下并排 (预测+误差)
+        - 'overlay': 叠加切换 (通过标签页切换显示预测或误差)
+
+    :param parent: 父控件
+    :type parent: Optional[QWidget]
+    :param mode: 布局模式，'horizontal', 'vertical', 'overlay'
+    :type mode: str
     """
     def __init__(self, parent=None, mode: str = 'horizontal'):
         super().__init__(parent)
         self.mode = mode
-        self._overlay_state = 0  # 0: 显示预测, 1: 显示误差
+        self._overlay_state = 0
         self._has_true = False
         self._current_data = None
         self.figure = Figure(figsize=PLOT_FIGSIZE_1D, constrained_layout=True)
         self.canvas = FigureCanvasQTAgg(self.figure)
-        # 布局：画布 + 控制栏
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        # overlay 模式使用 QTabWidget
         if self.mode == 'overlay':
             self.tab_widget = QTabWidget()
             self.tab_widget.setVisible(True)
@@ -281,7 +301,7 @@ class Steady1DPlotWidget(BasePlotWidget):
         else:
             main_layout.addWidget(self.canvas)
     def _update_overlay_display_tab(self):
-        """overlay 模式：分别更新两个标签页"""
+        """overlay 模式：分别更新两个标签页。"""
         if self._current_data is None:
             return
         data = self._current_data
@@ -301,7 +321,6 @@ class Steady1DPlotWidget(BasePlotWidget):
         if u_pred is not None or u_true is not None:
             self.pred_ax.legend(fontsize=PLOT_LEGEND_FONTSIZE)
         self.pred_ax.grid(True, alpha=0.3)
-        # self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.pred_figure)
         self.pred_canvas.draw_idle()
         # --- 标签页2: 误差图 ---
@@ -329,7 +348,6 @@ class Steady1DPlotWidget(BasePlotWidget):
             self.err_ax.set_title('1D Error (No data)')
         self.err_ax.set_xlabel('x', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.grid(True, alpha=0.3)
-        # self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.err_figure)
         self.err_canvas.draw_idle()
     def set_data(
@@ -340,17 +358,28 @@ class Steady1DPlotWidget(BasePlotWidget):
         exact_func: Optional[Callable] = None,
         n_points: int = 200,
     ):
-        """更新并绘制 1D 稳态预测结果"""
+        """
+        更新并绘制 1D 稳态预测结果。
+
+        :param model: 训练好的神经网络模型
+        :type model: Optional[torch.nn.Module]
+        :param x_range: x 轴范围 (x_min, x_max)
+        :type x_range: tuple
+        :param true_func: 真实解函数（与 exact_func 同义）
+        :type true_func: Optional[Callable]
+        :param exact_func: 真实解函数
+        :type exact_func: Optional[Callable]
+        :param n_points: 采样点数
+        :type n_points: int
+        """
         true_func = true_func if true_func is not None else exact_func
         self.figure.clear()
-        # 准备数据
         data = prepare_1d_data(model, x_range, n_points, true_func)
         self._current_data = data
         x = data['x']
         u_pred = data['u_pred']
         u_true = data['u_true']
         self._has_true = (u_true is not None)
-        # 判断显示模式
         if self.mode == 'overlay':
             self._update_overlay_display_tab()
             return
@@ -358,7 +387,7 @@ class Steady1DPlotWidget(BasePlotWidget):
             if self.mode == 'horizontal':
                 ax1 = self.figure.add_subplot(1, 2, 1)
                 ax2 = self.figure.add_subplot(1, 2, 2)
-            else:  # vertical
+            else:
                 ax1 = self.figure.add_subplot(2, 1, 1)
                 ax2 = self.figure.add_subplot(2, 1, 2)
             # 左/上：解对比
@@ -400,7 +429,6 @@ class Steady1DPlotWidget(BasePlotWidget):
             ax.legend(fontsize=PLOT_LEGEND_FONTSIZE)
             ax.grid(True, alpha=0.3)
         else:
-            # 无真实解，单图显示预测
             ax = self.figure.add_subplot(1, 1, 1)
             if u_pred is not None:
                 ax.plot(x, u_pred, 'b-', label='PINN Prediction', linewidth=PLOT_LINEWIDTH_THICK)
@@ -413,15 +441,19 @@ class Steady1DPlotWidget(BasePlotWidget):
             ax.set_ylabel('u(x)', fontsize=PLOT_AXIS_LABELSIZE)
             ax.grid(True, alpha=0.3)
         _apply_theme_to_figure(self.figure)
-        # self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         self.canvas.draw()
-# ============================================================================
+
 # 3. 一维含时问题控件 (1D Transient)
-# ============================================================================
 class Transient1DPlotWidget(BasePlotWidget):
     """
-    一维含时问题交互式可视化控件
-    支持 horizontal / vertical / overlay 三种布局模式
+    一维含时问题交互式可视化控件。
+
+    支持 horizontal / vertical / overlay 三种布局模式。
+
+    :param parent: 父控件
+    :type parent: Optional[QWidget]
+    :param mode: 布局模式，'horizontal', 'vertical', 'overlay'
+    :type mode: str
     """
     def __init__(self, parent=None, mode: str = 'horizontal'):
         super().__init__(parent)
@@ -436,11 +468,9 @@ class Transient1DPlotWidget(BasePlotWidget):
         self.n_points = 200
         self.figure = Figure(figsize=PLOT_FIGSIZE_1D, constrained_layout=True)
         self.canvas = FigureCanvasQTAgg(self.figure)
-        # 控制栏
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         if self.mode == 'overlay':
-            # overlay 模式：使用 QTabWidget
             self.tab_widget = QTabWidget()
             self.tab_widget.setVisible(True)
             # 标签页1：预测解
@@ -454,7 +484,7 @@ class Transient1DPlotWidget(BasePlotWidget):
             self.err_ax = self.err_figure.add_subplot(111)
             self.tab_widget.addTab(self.err_canvas, "误差图")
             main_layout.addWidget(self.tab_widget)
-            # 时间滑块（overlay 模式下也要有）
+            # 时间滑块
             self.label = QLabel("Time (t): 0.000")
             self.label.setStyleSheet("font-weight: bold; font-size: 12px;")
             self.slider = QSlider(Qt.Horizontal)
@@ -478,7 +508,7 @@ class Transient1DPlotWidget(BasePlotWidget):
             slider_layout.addWidget(self.slider)
             main_layout.addLayout(slider_layout)
     def _update_overlay_display_tab(self):
-        """overlay 模式：分别更新两个标签页"""
+        """overlay 模式：分别更新两个标签页。"""
         if self._current_data is None:
             return
         data = self._current_data
@@ -499,7 +529,6 @@ class Transient1DPlotWidget(BasePlotWidget):
         if u_pred is not None or u_true is not None:
             self.pred_ax.legend(fontsize=PLOT_LEGEND_FONTSIZE)
         self.pred_ax.grid(True, alpha=0.3)
-        # self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.pred_figure)
         self.pred_canvas.draw_idle()
         # --- 标签页2: 误差图 ---
@@ -527,11 +556,25 @@ class Transient1DPlotWidget(BasePlotWidget):
             self.err_ax.set_title('1D Error (No data)')
         self.err_ax.set_xlabel('x', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.grid(True, alpha=0.3)
-        # self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.err_figure)
         self.err_canvas.draw_idle()
-    def set_data(self, model=None, x_range=(0, 1), t_range=(0, 1),
-                 exact_func=None, true_func=None, n_points=200):
+    def set_data(self, model=None, x_range=(0, 1), t_range=(0, 1), exact_func=None, true_func=None, n_points=200):
+        """
+        设置数据并初始化绘图。
+
+        :param model: 神经网络模型
+        :type model: torch.nn.Module
+        :param x_range: x 轴范围 (x_min, x_max)
+        :type x_range: tuple
+        :param t_range: t 轴范围 (t_min, t_max)
+        :type t_range: tuple
+        :param exact_func: 真实解函数
+        :type exact_func: Optional[Callable]
+        :param true_func: 真实解函数（与 exact_func 同义）
+        :type true_func: Optional[Callable]
+        :param n_points: 采样点数
+        :type n_points: int
+        """
         self.model = model
         self.x_range = x_range
         self.t_range = t_range
@@ -540,16 +583,22 @@ class Transient1DPlotWidget(BasePlotWidget):
         self.slider.setValue(0)
         self.update_plot()
     def _on_slider_changed(self, value: int):
+        """滑块值变化时更新时间并重绘。"""
         t_min, t_max = self.t_range
         t_val = t_min + (t_max - t_min) * (value / 100.0)
         self.label.setText(f"Time (t): {t_val:.3f}")
         self.update_plot(t_val)
     def update_plot(self, t_val: Optional[float] = None):
+        """
+        更新当前时间下的绘图。
+
+        :param t_val: 时间值，若为 None 则从滑块读取
+        :type t_val: Optional[float]
+        """
         t_min, t_max = self.t_range
         if t_val is None:
             t_val = t_min + (t_max - t_min) * (self.slider.value() / 100.0)
         self.figure.clear()
-        # 准备数据
         data = prepare_transient_1d_data(self.model, self.x_range, t_val, self.n_points, self.exact_func)
         self._current_data = data
         x = data['x']
@@ -618,13 +667,20 @@ class Transient1DPlotWidget(BasePlotWidget):
             ax.set_ylabel('u(x, t)', fontsize=PLOT_AXIS_LABELSIZE)
             ax.grid(True, alpha=0.3)
         _apply_theme_to_figure(self.figure)
-        # self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         self.canvas.draw()
-# ============================================================================
+
 # 4. 二维稳态问题控件 (2D Steady)
-# ============================================================================
 class Steady2DPlotWidget(BasePlotWidget):
-    """二维稳态问题可视化控件，支持 horizontal / vertical / overlay 三种模式"""
+    """
+    二维稳态问题可视化控件。
+
+    支持 horizontal / vertical / overlay 三种模式。
+
+    :param parent: 父控件
+    :type parent: Optional[QWidget]
+    :param mode: 布局模式，'horizontal', 'vertical', 'overlay'
+    :type mode: str
+    """
     def __init__(self, parent=None, mode: str = 'horizontal'):
         super().__init__(parent)
         self.mode = mode
@@ -636,7 +692,6 @@ class Steady2DPlotWidget(BasePlotWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         if self.mode == 'overlay':
-            # overlay 模式：使用 QTabWidget
             self.tab_widget = QTabWidget()
             self.tab_widget.setVisible(True)
             # 标签页1：预测解（3D 曲面）
@@ -653,7 +708,7 @@ class Steady2DPlotWidget(BasePlotWidget):
         else:
             main_layout.addWidget(self.canvas)
     def _update_overlay_display_tab(self):
-        """overlay 模式：分别更新两个标签页"""
+        """overlay 模式：分别更新两个标签页。"""
         if self._current_data is None:
             return
         data = self._current_data
@@ -672,7 +727,6 @@ class Steady2DPlotWidget(BasePlotWidget):
         self.pred_ax.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
         self.pred_ax.set_zlabel('u', fontsize=PLOT_AXIS_LABELSIZE)
         self.pred_ax.view_init(elev=30, azim=-60)
-        # self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.pred_figure)
         self.pred_canvas.draw_idle()
         # --- 标签页2: 误差图 (2D 云图) ---
@@ -700,10 +754,25 @@ class Steady2DPlotWidget(BasePlotWidget):
         self.err_ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.set_aspect('equal')
-        # self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.err_figure)
         self.err_canvas.draw_idle()
     def set_data(self, model=None, x_range=(0, 1), y_range=(0, 1), true_func=None, exact_func=None, n_points=100):
+        """
+        更新并绘制二维稳态解。
+
+        :param model: 神经网络模型
+        :type model: torch.nn.Module
+        :param x_range: x 轴范围 (x_min, x_max)
+        :type x_range: tuple
+        :param y_range: y 轴范围 (y_min, y_max)
+        :type y_range: tuple
+        :param true_func: 真实解函数（与 exact_func 同义）
+        :type true_func: Optional[Callable]
+        :param exact_func: 真实解函数
+        :type exact_func: Optional[Callable]
+        :param n_points: 每个维度的采样点数
+        :type n_points: int
+        """
         true_func = true_func if true_func is not None else exact_func
         self.figure.clear()
         data = prepare_2d_data(model, x_range, y_range, n_points, true_func)
@@ -759,7 +828,6 @@ class Steady2DPlotWidget(BasePlotWidget):
             ax.set_zlabel('u', fontsize=PLOT_AXIS_LABELSIZE)
             ax.view_init(elev=30, azim=-60)
         elif Z_pred is not None:
-            # 只有预测
             ax = self.figure.add_subplot(111, projection='3d')
             surf = ax.plot_surface(X, Y, Z_pred, cmap='viridis', edgecolor='none', alpha=0.95)
             self._clear_colorbars(self.figure)
@@ -774,13 +842,20 @@ class Steady2DPlotWidget(BasePlotWidget):
             ax.text(0.5, 0.5, "无数据", ha='center', va='center', fontsize=PLOT_AXIS_LABELSIZE)
             ax.set_title('No Data', fontsize=PLOT_TITLE_FONTSIZE)
         _apply_theme_to_figure(self.figure)
-        # self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         self.canvas.draw()
-# ============================================================================
+
 # 5. 二维含时问题控件 (2D Transient)
-# ============================================================================
 class Transient2DPlotWidget(BasePlotWidget):
-    """二维含时问题交互式可视化控件，支持 horizontal / vertical / overlay 三种模式"""
+    """
+    二维含时问题交互式可视化控件。
+
+    支持 horizontal / vertical / overlay 三种模式。
+
+    :param parent: 父控件
+    :type parent: Optional[QWidget]
+    :param mode: 布局模式，'horizontal', 'vertical', 'overlay'
+    :type mode: str
+    """
     def __init__(self, parent=None, mode: str = 'horizontal'):
         super().__init__(parent)
         self.mode = mode
@@ -798,7 +873,6 @@ class Transient2DPlotWidget(BasePlotWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         if self.mode == 'overlay':
-            # overlay 模式：使用 QTabWidget
             self.tab_widget = QTabWidget()
             self.tab_widget.setVisible(True)
             # 标签页1：预测解（3D 曲面）
@@ -812,7 +886,7 @@ class Transient2DPlotWidget(BasePlotWidget):
             self.err_ax = self.err_figure.add_subplot(111)
             self.tab_widget.addTab(self.err_canvas, "误差图")
             main_layout.addWidget(self.tab_widget)
-            # 时间滑块（overlay 模式下也要有）
+            # 时间滑块
             self.label = QLabel("Time (t): 0.000")
             self.label.setStyleSheet("font-weight: bold; font-size: 12px;")
             self.slider = QSlider(Qt.Horizontal)
@@ -836,7 +910,7 @@ class Transient2DPlotWidget(BasePlotWidget):
             slider_layout.addWidget(self.slider)
             main_layout.addLayout(slider_layout)
     def _update_overlay_display_tab(self):
-        """overlay 模式：分别更新两个标签页"""
+        """overlay 模式：分别更新两个标签页。"""
         if self._current_data is None:
             return
         data = self._current_data
@@ -856,7 +930,6 @@ class Transient2DPlotWidget(BasePlotWidget):
         self.pred_ax.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
         self.pred_ax.set_zlabel('u', fontsize=PLOT_AXIS_LABELSIZE)
         self.pred_ax.view_init(elev=30, azim=-60)
-        # self.pred_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.pred_figure)
         self.pred_canvas.draw_idle()
         # --- 标签页2: 误差图 (2D 云图) ---
@@ -884,11 +957,27 @@ class Transient2DPlotWidget(BasePlotWidget):
         self.err_ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
         self.err_ax.set_aspect('equal')
-        # self.err_figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         _apply_theme_to_figure(self.err_figure)
         self.err_canvas.draw_idle()
-    def set_data(self, model=None, x_range=(0, 1), y_range=(0, 1), t_range=(0, 1),
-                 exact_func=None, true_func=None, n_points=80):
+    def set_data(self, model=None, x_range=(0, 1), y_range=(0, 1), t_range=(0, 1), exact_func=None, true_func=None, n_points=80):
+        """
+        设置数据并初始化绘图。
+
+        :param model: 神经网络模型
+        :type model: torch.nn.Module
+        :param x_range: x 轴范围 (x_min, x_max)
+        :type x_range: tuple
+        :param y_range: y 轴范围 (y_min, y_max)
+        :type y_range: tuple
+        :param t_range: t 轴范围 (t_min, t_max)
+        :type t_range: tuple
+        :param exact_func: 真实解函数
+        :type exact_func: Optional[Callable]
+        :param true_func: 真实解函数（与 exact_func 同义）
+        :type true_func: Optional[Callable]
+        :param n_points: 每个空间维度的采样点数
+        :type n_points: int
+        """
         self.model = model
         self.x_range = x_range
         self.y_range = y_range
@@ -898,11 +987,18 @@ class Transient2DPlotWidget(BasePlotWidget):
         self.slider.setValue(0)
         self.update_plot()
     def _on_slider_changed(self, value: int):
+        """滑块值变化时更新时间并重绘。"""
         t_min, t_max = self.t_range
         t_val = t_min + (t_max - t_min) * (value / 100.0)
         self.label.setText(f"Time (t): {t_val:.3f}")
         self.update_plot(t_val)
     def update_plot(self, t_val: Optional[float] = None):
+        """
+        更新当前时间下的绘图。
+
+        :param t_val: 时间值，若为 None 则从滑块读取
+        :type t_val: Optional[float]
+        """
         t_min, t_max = self.t_range
         if t_val is None:
             t_val = t_min + (t_max - t_min) * (self.slider.value() / 100.0)
@@ -976,5 +1072,4 @@ class Transient2DPlotWidget(BasePlotWidget):
             ax.set_xlabel('X', fontsize=PLOT_AXIS_LABELSIZE)
             ax.set_ylabel('Y', fontsize=PLOT_AXIS_LABELSIZE)
         _apply_theme_to_figure(self.figure)
-        # self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         self.canvas.draw()

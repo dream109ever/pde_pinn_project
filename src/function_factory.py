@@ -1,3 +1,11 @@
+# src/function_factory.py
+"""
+偏微分方程求解核心工厂模块。
+
+提供 PDE 输入解析、损失函数生成、精确解构造的统一接口。
+包含 PDEParser、InputParser、LossGenerator、AnalyticalSolverHub 四个核心类，
+以及顶层入口函数 solve_pde。
+"""
 import re
 import torch
 import sympy as sp
@@ -9,23 +17,26 @@ from typing import Union, Callable, Dict, List, Tuple, Optional
 
 class PDEParser:
     """
-    PDE偏微分方程输入参数解析器：将系数、源项、边界条件等多样化的用户输入，统一解析为标准的可调用函数或结构化字典。
+    PDE 输入参数解析器。
+
+    将系数、源项、边界条件等多样化的用户输入，统一解析为标准的可调用函数或结构化字典。
     """
     @staticmethod
     def parse_expression(expr: Union[str, float, int, Callable], variables: List[str]) -> Callable:
         """
-        将数字、字符串公式或既有函数统一解析为一个标准的 Python 可调用对象(Callable)。
-        
-        参数:
-            expr: 输入的表达式。可以是常数(int/float)、数学字符串(如 'sin(x)*cos(y)') 或 自定义函数。
-            variables: 字符串公式中包含的自变量列表，例如 ['x'] 或 ['x', 'y', 't']。
-            
-        返回:
-            Callable: 统一接口的函数，其接收与 variables 长度相同的参数输入。
-            
-        示例:
+        将数字、字符串公式或既有函数统一解析为 Python 可调用对象。
+
+        :param expr: 输入表达式，可为常数、数学字符串或自定义函数
+        :type expr: Union[str, float, int, Callable]
+        :param variables: 自变量名称列表，如 ['x'] 或 ['x', 'y', 't']
+        :type variables: List[str]
+        :return: 统一接口的可调用函数，签名与 variables 长度匹配
+        :rtype: Callable
+
+        Example:
             >>> f = PDEParser.parse_expression('x**2 + np.sin(t)', ['x', 't'])
-            >>> f(2.0, 0.0)  # 输出 4.0
+            >>> f(2.0, 0.0)
+            4.0
         """
         if callable(expr):
             return expr 
@@ -59,17 +70,12 @@ class PDEParser:
         """
         对乱序的边界/初始条件列表进行归类和统一解析。
 
-        参数:
-            condition_list: 包含各种条件的字典列表，如 [{'type': 'Dirichlet', 'location': 'left', 'value': '0'}]
-            variables: 自变量列表。
-            
-        返回:
-            Dict[str, List[dict]]: 归类后的字典，格式为::
-
-                {
-                    'initial': [...],  # 初始条件
-                    'boundary': [...]  # 空间边界条件
-                }
+        :param condition_list: 条件字典列表，如 [{'type': 'Dirichlet', 'location': 'left', 'value': '0'}]
+        :type condition_list: List[dict]
+        :param variables: 自变量列表
+        :type variables: List[str]
+        :return: 归类后的字典，包含 'initial' 和 'boundary' 两个键
+        :rtype: Dict[str, List[dict]]
         """
         structured_conditions = { 'initial': [], 'boundary': [] }
         for cond in condition_list:
@@ -88,7 +94,13 @@ class PDEParser:
     @staticmethod
     def solve_ode(ode_expr, u, ics):
         """
-        含有异常捕获包裹的 ode 求解函数
+        含有异常捕获包裹的 ODE 求解函数。
+
+        :param ode_expr: sympy 表达式形式的 ODE
+        :param u: sympy 函数对象
+        :param ics: 初始条件字典
+        :return: 求解结果，失败时返回 None
+        :rtype: Optional[sympy.core.expr.Expr]
         """
         try:
             return sp.dsolve(ode_expr, u, ics=ics)
@@ -96,10 +108,10 @@ class PDEParser:
             return None
 
 class InputParser:
-    """输入解析器：统一处理系数、源项、边界条件的解析"""
+    """输入解析器：统一处理系数、源项、边界条件的解析。"""
     @staticmethod
     def parse_coeffs_1d(coeffs, variables):
-        """一维 ODE 系数解析（list 格式）"""
+        """一维 ODE 系数解析（支持 list 或 dict 格式）。"""
         if isinstance(coeffs, dict):
             order_map = {}
             for key, val in coeffs.items():
@@ -124,7 +136,7 @@ class InputParser:
         return [PDEParser.parse_expression(coeffs, variables)]
     @staticmethod
     def parse_coeffs_2d(coeffs, variables):
-        """二维稳态系数解析（dict 格式）"""
+        """二维稳态系数解析（dict 格式）。"""
         if not isinstance(coeffs, dict):
             raise TypeError(
                 f"二维稳态分支要求 coeffs 为字典格式，例如 {{'u_xx': 1.0, 'u_yy': 1.0}}，"
@@ -133,7 +145,7 @@ class InputParser:
         return {k: PDEParser.parse_expression(coeffs.get(k, 0.0), variables) for k in ['u_xx', 'u_yy', 'u_xy', 'u_x', 'u_y', 'u']}
     @staticmethod
     def parse_coeffs_1d_transient(coeffs, variables):
-        """一维含时系数解析（dict 格式）"""
+        """一维含时系数解析（dict 格式）。"""
         if not isinstance(coeffs, dict):
             raise TypeError(
                 f"一维含时分支要求 coeffs 为字典格式，例如 {{'u_t': 1.0, 'u_xx': -0.1}}，"
@@ -142,7 +154,7 @@ class InputParser:
         return {k: PDEParser.parse_expression(coeffs.get(k, 0.0), variables) for k in ['u_tt', 'u_t', 'u_xx', 'u_x', 'u']}
     @staticmethod
     def parse_coeffs_2d_transient(coeffs, variables):
-        """二维含时系数解析（dict 格式）"""
+        """二维含时系数解析（dict 格式）。"""
         if not isinstance(coeffs, dict):
             raise TypeError(
                 f"二维含时分支要求 coeffs 为字典格式，例如 {{'u_t': 1.0, 'u_xx': 0.1, 'u_yy': 0.1}}，"
@@ -151,7 +163,14 @@ class InputParser:
         return {k: PDEParser.parse_expression(coeffs.get(k, 0.0), variables) for k in ['u_tt', 'u_t', 'u_xx', 'u_yy', 'u_xy', 'u_x', 'u_y', 'u']}
     @staticmethod
     def parse_source(source_term, variables):
-        """解析源项，返回 (callable, str_or_None)"""
+        """
+        解析源项，返回 (callable, str_or_None)。
+
+        :param source_term: 源项表达式（字符串或可调用对象）
+        :param variables: 自变量列表
+        :return: (函数对象, 字符串表示)
+        :rtype: Tuple[Callable, Optional[str]]
+        """
         if isinstance(source_term, str):
             cleaned = source_term.strip()
             num_pattern = re.compile(r'^[+-]?\d+(\.\d+)?$')
@@ -172,19 +191,26 @@ class InputParser:
         return source_term, str(source_term)
     @staticmethod
     def parse_conditions(condition, variables):
-        """解析边界/初始条件"""
+        """解析边界/初始条件，委托给 PDEParser.parse_boundary_conditions。"""
         return PDEParser.parse_boundary_conditions(condition, variables)
 
 class LossGenerator:
     """
-    PINN 物理信息神经网络损失函数统一生成器：根据不同的物理问题维度与时变性，自动拼装并返回与原系统接口一致的损失计算函数闭包。
+    PINN 损失函数统一生成器。
+
+    根据问题维度与时变性，自动拼装并返回与系统接口一致的损失计算函数闭包。
     """
     @staticmethod
     def make_1d_steady_loss(coeff_funcs, f, condition, order):
         """
-        一维稳态 ODE 损失函数生成器
+        一维稳态 ODE 损失函数生成器。
 
-        返回: (pde_loss, ic_loss, total_loss)
+        :param coeff_funcs: 系数函数列表，长度为 order+1
+        :param f: 源项函数
+        :param condition: 边界条件列表
+        :param order: 方程阶数
+        :return: (pde_loss, ic_loss, total_loss)
+        :rtype: Tuple[Callable, Callable, Callable]
         """
         def pde_loss(net, x):
             u = net(x)
@@ -226,9 +252,18 @@ class LossGenerator:
     @staticmethod
     def make_1d_transient_loss(c_tt_fn, c_t_fn, c_xx_fn, c_x_fn, c_u_fn, f, ic_conds, bc_sides):
         """
-        一维含时 PDE 损失函数生成器
+        一维含时 PDE 损失函数生成器。
 
-        返回: (pde_loss, bc_ic_loss, total_loss)
+        :param c_tt_fn: u_tt 项系数函数
+        :param c_t_fn: u_t 项系数函数
+        :param c_xx_fn: u_xx 项系数函数
+        :param c_x_fn: u_x 项系数函数
+        :param c_u_fn: u 项系数函数
+        :param f: 源项函数
+        :param ic_conds: 初始条件列表
+        :param bc_sides: 边界条件字典
+        :return: (pde_loss, bc_ic_loss, total_loss)
+        :rtype: Tuple[Callable, Callable, Callable]
         """
         def pde_loss(net, points):
             x = points[:, 0:1].requires_grad_(True)
@@ -292,9 +327,18 @@ class LossGenerator:
     @staticmethod
     def make_2d_steady_loss(c_xx_fn, c_yy_fn, c_xy_fn, c_x_fn, c_y_fn, c_u_fn, f, bc_sides):
         """
-        二维稳态 PDE 损失函数生成器
+        二维稳态 PDE 损失函数生成器。
 
-        返回: (pde_loss, bc_loss, total_loss)
+        :param c_xx_fn: u_xx 项系数函数
+        :param c_yy_fn: u_yy 项系数函数
+        :param c_xy_fn: u_xy 项系数函数
+        :param c_x_fn: u_x 项系数函数
+        :param c_y_fn: u_y 项系数函数
+        :param c_u_fn: u 项系数函数
+        :param f: 源项函数
+        :param bc_sides: 边界条件字典
+        :return: (pde_loss, bc_loss, total_loss)
+        :rtype: Tuple[Callable, Callable, Callable]
         """
         def pde_loss(net, points):
             x = points[:, 0:1].requires_grad_(True)
@@ -349,9 +393,10 @@ class LossGenerator:
     @staticmethod
     def make_2d_transient_loss(c_tt_fn, c_t_fn, c_xx_fn, c_yy_fn, c_xy_fn, c_x_fn, c_y_fn, c_u_fn, f, ic_conds, bc_sides):
         """
-        二维含时 PDE 损失函数生成器
+        二维含时 PDE 损失函数生成器。
 
-        返回: (pde_loss, bc_ic_loss, total_loss)
+        :return: (pde_loss, bc_ic_loss, total_loss)
+        :rtype: Tuple[Callable, Callable, Callable]
         """
         def pde_loss(net, points):
             x = points[:, 0:1].requires_grad_(True)
@@ -429,7 +474,14 @@ class LossGenerator:
     def generate(cls, dimension: int, has_t: bool, **kwargs):
         """
         统一入口，自动路由到对应的损失函数生成器。
-        参数通过 kwargs 传入，每个分支需要特定的参数键。
+
+        :param dimension: 空间维数 (1 或 2)
+        :type dimension: int
+        :param has_t: 是否含时间变量
+        :type has_t: bool
+        :param kwargs: 各分支所需的特定参数
+        :return: 损失函数三元组 (pde_loss, constraint_loss, total_loss)
+        :rtype: Tuple[Callable, Callable, Callable]
         """
         if dimension == 1 and not has_t:
             required = ['coeff_funcs', 'f', 'condition', 'order']
@@ -476,7 +528,9 @@ class LossGenerator:
 
 class AnalyticalSolverHub:
     """
-    解析解求解器中心：统一管理各分支的精确解生成逻辑。
+    解析解求解器中心。
+
+    统一管理各分支的精确解生成逻辑，包括级数解析解和数值 fallback 解。
     """
     @classmethod
     def solve_1d_steady(
@@ -492,7 +546,10 @@ class AnalyticalSolverHub:
         x_min: float, x_max: float,   # 定义域边界
     ) -> Tuple[Optional[Callable], Optional[str]]:
         """
-        一维稳态 ODE 精确解
+        一维稳态 ODE 精确解，优先使用 sympy 解析解，失败时使用 scipy 数值解。
+
+        :return: (精确解函数, 表达式字符串)
+        :rtype: Tuple[Optional[Callable], Optional[str]]
         """
         # ===== 第1步：尝试 sympy 解析解 =====
         exact_expr = None
@@ -637,12 +694,32 @@ class AnalyticalSolverHub:
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[Optional[Callable], Optional[str]]:
         """
-        一维含时 PDE 精确解（热传导/波动方程的级数解）
+        一维含时 PDE 精确解，优先匹配热传导/波动方程的级数解析解，失败时使用 FDM fallback。
+
+        :param coeff_dict: 原始系数字典
+        :param source_term: 源项字符串
+        :param domain: 定义域字典
+        :param condition: 条件列表
+        :param c_tt_fn: u_tt 系数函数
+        :param c_t_fn: u_t 系数函数
+        :param c_xx_fn: u_xx 系数函数
+        :param c_x_fn: u_x 系数函数
+        :param c_u_fn: u 系数函数
+        :param f: 源项函数
+        :param ic_conds: 初始条件列表
+        :param bc_sides: 边界条件字典
+        :param x_min: x 左边界
+        :param x_max: x 右边界
+        :param t_min: t 左边界（初始时刻）
+        :param t_max: t 右边界
+        :param Lx: x 方向长度
+        :param log_callback: 日志回调函数
+        :return: (精确解函数, 表达式字符串)
+        :rtype: Tuple[Optional[Callable], Optional[str]]
         """
         exact_func = None
         exact_expr = None
         N_terms = 20
-        # 提取基准时空系数值，并校验其空间/时间分布是否满足常系数方程
         try:
             v_tt = float(c_tt_fn(x_min, t_min))
             v_t  = float(c_t_fn(x_min, t_min))
@@ -658,7 +735,6 @@ class AnalyticalSolverHub:
             f_is_zero = (abs(float(f(x_min, t_min))) < 1e-8 and abs(float(f(x_max, t_max))) < 1e-8)
         except: 
             f_is_zero = False
-        # 提取边界条件的类型及数值映射函数
         def get_bc_info(side):
             conds = bc_sides.get(side, [])
             if not conds: return "dirichlet", lambda t: 0.0
@@ -666,10 +742,8 @@ class AnalyticalSolverHub:
             return c.get("type", "dirichlet"), lambda t: float(c.get('val_func', lambda x, t: 0.0)(0.0, t))
         left_type, left_bc_fn = get_bc_info("left")
         right_type, right_bc_fn = get_bc_info("right")
-        # 检查左右边界是否为纯齐次边界
         left_homo = (abs(left_bc_fn(t_min)) < 1e-8 and abs(left_bc_fn(t_max)) < 1e-8)
         right_homo = (abs(right_bc_fn(t_min)) < 1e-8 and abs(right_bc_fn(t_max)) < 1e-8)
-        # 解析初始条件：初始位移 φ(x) 与 初始速度 ψ(x)
         phi_fn = lambda x: 0.0
         psi_fn = lambda x: 0.0
         for cond in ic_conds:
@@ -683,8 +757,8 @@ class AnalyticalSolverHub:
         if is_const and f_is_zero:
             # ---------------- 类型一：热传导 / 扩散偏微分方程大类 ----------------
             if abs(v_tt) < 1e-9 and abs(v_t) > 1e-9 and abs(v_xx) > 1e-9 and abs(v_x) < 1e-9:
-                kappa = abs(-v_xx / v_t)  # 扩散率
-                beta = v_u / v_t     # 吸收耗散系数
+                kappa = abs(-v_xx / v_t)    # 扩散率
+                beta = v_u / v_t            # 吸收耗散系数
                 # Case A1: 标准热传导 或 吸收耗散方程 (两端齐次 Dirichlet)
                 if left_type == "dirichlet" and right_type == "dirichlet" and left_homo and right_homo:
                     matched_analytical = True
@@ -764,9 +838,9 @@ class AnalyticalSolverHub:
             # ---------------- 类型二：双曲型波动方程大类 ----------------
             elif abs(v_tt) > 1e-9 and abs(v_xx) > 1e-9 and abs(v_x) < 1e-9:
                 a2 = -v_xx / v_tt
-                a = np.sqrt(max(a2, 1e-9)) # 物理波速
-                gamma = v_t / v_tt         # 介质阻尼/耗散系数
-                beta = v_u / v_tt          # 恢复力项系数
+                a = np.sqrt(max(a2, 1e-9))  # 物理波速
+                gamma = v_t / v_tt          # 介质阻尼/耗散系数
+                beta = v_u / v_tt           # 恢复力项系数
                 # Case B1/B2: 标准弦振动波 或 阻尼耗散波动方程 (两端固定齐次 Dirichlet)
                 if left_type == "dirichlet" and right_type == "dirichlet" and left_homo and right_homo:
                     matched_analytical = True
@@ -858,7 +932,7 @@ class AnalyticalSolverHub:
             x_lin = np.linspace(x_min, x_max, nx)
             dx = (x_max - x_min) / (nx - 1)
             is_2nd_time = (abs(v_tt) > 1e-9)
-            # 依据时间阶数配置状态空间向量 (一阶系统层或二阶时空联合状态层)
+            # 依据时间阶数配置状态空间向量
             if is_2nd_time:
                 Y0 = np.zeros(2 * nx)
                 for i in range(nx):
@@ -937,10 +1011,12 @@ class AnalyticalSolverHub:
         bc_sides: dict, x_min: float, x_max: float, y_min: float, y_max: float, Lx: float, Ly: float, 
     ) -> Tuple[Optional[Callable], Optional[str]]:
         """
-        二维稳态 PDE 精确解（泊松/拉普拉斯级数解 + 有限差分 fallback）
+        二维稳态 PDE 精确解，优先匹配泊松/拉普拉斯级数解，失败时使用 FDM fallback。
+
+        :return: (精确解函数, 表达式字符串)
+        :rtype: Tuple[Optional[Callable], Optional[str]]
         """
         N_terms = 10
-        # 辅助函数：判断边界类型
         def get_boundary_type(side):
             """返回某条边的边界类型和值函数"""
             conds = bc_sides.get(side, [])
@@ -963,7 +1039,6 @@ class AnalyticalSolverHub:
             except: return False
         def is_dirichlet(side): return get_boundary_type(side)[0] == "dirichlet"
         def is_neumann(side): return get_boundary_type(side)[0] == "neumann"
-        # 检查是否为广义泊松
         is_poisson = False
         scale = 1.0
         try:
@@ -977,7 +1052,6 @@ class AnalyticalSolverHub:
             is_poisson = False
         exact_func = None
         exact_expr = None
-        # 将全局共享的表达式构建提取器移出局部作用域，防止 NameError 错误
         def build_expr(A_coeffs, case_idx):
             terms = []
             if case_idx == 6:
@@ -1197,8 +1271,6 @@ class AnalyticalSolverHub:
                 )
         if exact_func is None:
             # ============ 有限差分法（FDM）作为 fallback ============
-            # 适用条件：矩形域，任意边界条件（Dirichlet/Neumann 混合）
-            # 支持方程：广义泊松：c_xx*u_xx + c_yy*u_yy = f（c_xx == c_yy）
             # 仅当方程为广义泊松时才执行 FDM
             if is_poisson:
                 nx, ny = 50, 50
@@ -1238,7 +1310,6 @@ class AnalyticalSolverHub:
                 def get_bc_type(side):
                     conds = bc_sides.get(side, [])
                     return conds[0].get("type", "dirichlet") if conds else "dirichlet"
-                # 独立判定各轴，并确保 Dirichlet 在四个拐角点拥有最高绝对优先级
                 for i in range(nx):
                     for j in range(ny):
                         k = idx(i, j)
@@ -1270,7 +1341,6 @@ class AnalyticalSolverHub:
                                 elif on_top:
                                     A_mat[k, k] = 1.0 / dy; A_mat[k, idx(i, j-1)] = -1.0 / dy; b_mat[k] = get_bc_value("top", x_val, y_val)
                         else:
-                            # 内部点：标准五点中心差分
                             A_mat[k, k] = -2/dx**2 - 2/dy**2
                             A_mat[k, idx(i-1, j)] = 1/dx**2
                             A_mat[k, idx(i+1, j)] = 1/dx**2
@@ -1309,7 +1379,10 @@ class AnalyticalSolverHub:
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[Optional[Callable], Optional[str]]:
         """
-        二维含时 PDE 精确解（热传导/波动的双重级数解 + MOL fallback）
+        二维含时 PDE 精确解，优先匹配热传导/波动的双重级数解，失败时使用 MOL fallback。
+
+        :return: (精确解函数, 表达式字符串)
+        :rtype: Tuple[Optional[Callable], Optional[str]]
         """
         exact_func = None
         exact_expr = None
@@ -1334,7 +1407,6 @@ class AnalyticalSolverHub:
         def get_bc_type(side):
             return bc_sides.get(side, [{}])[0].get("type", "dirichlet")
         all_dirichlet = all(get_bc_type(s) == "dirichlet" for s in ["left", "right", "bottom", "top"])
-        # 初始时空条件解析提取
         phi_fn = lambda x, y: 0.0
         psi_fn = lambda x, y: 0.0
         for cond in ic_conds:
@@ -1347,8 +1419,8 @@ class AnalyticalSolverHub:
         if is_const and f_is_zero:
             # ---------------- 类型一：二维热传导 / 扩散方程大类 ----------------
             if abs(v_tt) < 1e-9 and abs(v_t) > 1e-9 and v_xx == v_yy and abs(v_xx) > 1e-9 and abs(v_xy) < 1e-9:
-                kappa = abs(-v_xx / v_t)  # 空间扩散系数
-                beta = v_u / v_t     # 辐射/耗散衰减项
+                kappa = abs(-v_xx / v_t)    # 空间扩散系数
+                beta = v_u / v_t            # 辐射/耗散衰减项
                 # Case A1: 四边全齐次固定边界 (经典 Dirichlet 围剿)
                 if all_dirichlet:
                     matched_analytical = True
@@ -1381,9 +1453,9 @@ class AnalyticalSolverHub:
             # ---------------- 类型二：二维双曲型薄膜波动方程大类 ----------------
             elif abs(v_tt) > 1e-9 and v_xx == v_yy and abs(v_xx) > 1e-9 and abs(v_xy) < 1e-9:
                 a2 = -v_xx / v_tt
-                a = np.sqrt(max(a2, 1e-9)) # 声速/波速
-                gamma = v_t / v_tt         # 阻尼器介质耗散
-                beta = v_u / v_tt          # 恢复刚度
+                a = np.sqrt(max(a2, 1e-9))  # 声速/波速
+                gamma = v_t / v_tt          # 阻尼器介质耗散
+                beta = v_u / v_tt           # 恢复刚度
                 # Case B1: 四边固定二维薄膜弦振动 (四边齐次 Dirichlet)
                 if all_dirichlet:
                     matched_analytical = True
@@ -1429,7 +1501,7 @@ class AnalyticalSolverHub:
                         f"        ω_mn = {a:.3f} * sqrt((mπ/{Lx:.2f})² + (nπ/{Ly:.2f})²)\n"
                         f"        T_mn 满足 T_mn'' + {gamma:.3f}*T_mn' + (ω_mn² + {beta:.3f})*T_mn = 0"
                     )
-        # ==================== 二维时空半离散线条法 (Method of Lines, MOL) Fallback ====================
+        # ==================== 二维时空半离散线条法 (MOL) Fallback ====================
         if not matched_analytical:
             base_nx, base_ny = 15, 15
             def estimate_frequency(phi_fn, x_lin, y_lin):
@@ -1572,7 +1644,6 @@ class AnalyticalSolverHub:
                 from scipy.interpolate import RegularGridInterpolator
                 t_steps = max(20, int((t_max - t_min) * 80))
                 t_lin = np.linspace(t_min, t_max, t_steps)
-                # 计算最大稳定步长
                 dx_abs = (x_max - x_min) / (nx - 1)
                 dy_abs = (y_max - y_min) / (ny - 1)
                 kappa_est = abs(-v_xx / v_t) if abs(v_t) > 1e-12 else 0.1
@@ -1628,9 +1699,15 @@ class AnalyticalSolverHub:
     @classmethod
     def generate(cls, dimension: int, has_t: bool, **kwargs) -> Tuple[Optional[Callable], Optional[str]]:
         """
-        统一入口，自动路由到对应的精确解生成器
+        统一入口，自动路由到对应的精确解生成器。
 
-        返回: (exact_func, exact_expr)
+        :param dimension: 空间维数 (1 或 2)
+        :type dimension: int
+        :param has_t: 是否含时间变量
+        :type has_t: bool
+        :param kwargs: 各分支所需的特定参数
+        :return: (exact_func, exact_expr)
+        :rtype: Tuple[Optional[Callable], Optional[str]]
         """
         if dimension == 1 and not has_t:
             return cls.solve_1d_steady(
@@ -1915,12 +1992,10 @@ def solve_pde(dimension: int, order: int, has_t: bool, coeffs, source_term, doma
             if "derivative" not in cond:
                 cond["derivative"] = 0
             cond["value"] = _parse_value(cond["value"])
-        # ============ 损失函数 ============
         pde_loss, ic_loss, total_loss = LossGenerator.generate(
             dimension=1, has_t=False, coeff_funcs=coeff_funcs,
             f=f, condition=condition, order=order
         )
-        # ============ 精确解 ============
         exact_func, exact_expr = AnalyticalSolverHub.generate(
             dimension=1, has_t=False, coeffs=coeffs, source_term=source_term, order=order,
             condition=condition, domain=domain, coeff_funcs=coeff_funcs, f=f,
@@ -1950,13 +2025,11 @@ def solve_pde(dimension: int, order: int, has_t: bool, coeffs, source_term, doma
         for side in bc_sides:
             if not bc_sides[side]:
                 bc_sides[side] = [{"side": side, "type": "dirichlet", "value": "0", "val_func": lambda x, t: 0.0}]  
-        # ============ 损失函数 ============
         pde_loss, bc_ic_loss, total_loss = LossGenerator.generate(
             dimension=1, has_t=True,
             c_tt_fn=c_tt_fn, c_t_fn=c_t_fn, c_xx_fn=c_xx_fn, c_x_fn=c_x_fn, c_u_fn=c_u_fn,
             f=f, ic_conds=ic_conds, bc_sides=bc_sides
         )
-        # ============ 基准解 (精确解 / 有限差分 Fallback) ============
         exact_func, exact_expr = AnalyticalSolverHub.generate(
             dimension=1, has_t=True, coeff_dict=coeff_dict, source_term=source_term, domain=domain, condition=condition,
             c_tt_fn=c_tt_fn, c_t_fn=c_t_fn, c_xx_fn=c_xx_fn, c_x_fn=c_x_fn, c_u_fn=c_u_fn, f=f,
@@ -1985,14 +2058,12 @@ def solve_pde(dimension: int, order: int, has_t: bool, coeffs, source_term, doma
         for side in bc_sides:
             if not bc_sides[side]:
                 bc_sides[side] = [{"side": side, "type": "dirichlet", "value": "0", "val_func": lambda x, y: 0.0}]
-        # ============ 损失函数 ============
         pde_loss, bc_loss, total_loss = LossGenerator.generate(
             dimension=2, has_t=False,
             c_xx_fn=c_xx_fn, c_yy_fn=c_yy_fn, c_xy_fn=c_xy_fn,
             c_x_fn=c_x_fn, c_y_fn=c_y_fn, c_u_fn=c_u_fn,
             f=f, bc_sides=bc_sides
         )
-        # ============ 精确解 ============
         exact_func, exact_expr = AnalyticalSolverHub.generate(
             dimension=2, has_t=False, coeff_dict=coeff_dict, source_term=source_term, domain=domain, condition=condition,
             c_xx_fn=c_xx_fn, c_yy_fn=c_yy_fn, c_xy_fn=c_xy_fn, c_x_fn=c_x_fn, c_y_fn=c_y_fn, c_u_fn=c_u_fn, f=f,
@@ -2025,14 +2096,12 @@ def solve_pde(dimension: int, order: int, has_t: bool, coeffs, source_term, doma
         for side in bc_sides:
             if not bc_sides[side]:
                 bc_sides[side] = [{"side": side, "type": "dirichlet", "value": "0", "val_func": lambda x, y, t: 0.0}]
-        # ============ 损失函数 ============
         pde_loss, bc_ic_loss, total_loss = LossGenerator.generate(
             dimension=2, has_t=True,
             c_tt_fn=c_tt_fn, c_t_fn=c_t_fn, c_xx_fn=c_xx_fn, c_yy_fn=c_yy_fn, c_xy_fn=c_xy_fn,
             c_x_fn=c_x_fn, c_y_fn=c_y_fn, c_u_fn=c_u_fn,
             f=f, ic_conds=ic_conds, bc_sides=bc_sides
         )
-        # ============ 基准解 (精确解 / 有限差分 Fallback) ============
         exact_func, exact_expr = AnalyticalSolverHub.generate(
             dimension=2, has_t=True, coeff_dict=coeff_dict, source_term=source_term, domain=domain, condition=condition,
             c_tt_fn=c_tt_fn, c_t_fn=c_t_fn, c_xx_fn=c_xx_fn, c_yy_fn=c_yy_fn, c_xy_fn=c_xy_fn, c_x_fn=c_x_fn, c_y_fn=c_y_fn, c_u_fn=c_u_fn, f=f,
@@ -2047,11 +2116,11 @@ def solve_pde(dimension: int, order: int, has_t: bool, coeffs, source_term, doma
 def print_exact_values(exact_solution, points, labels=None):
     """
     辅助函数：打印精确解在指定点的值。
-    
-    参数:
-        exact_solution: 可调用函数，签名 exact_solution(x) 或 exact_solution(x, y) 或 exact_solution(x, y, t)
-        points: 点列表，每个点是一个元组，维度需与 exact_solution 匹配
-        labels: 标签列表，用于打印时标识
+
+    :param exact_solution: 可调用函数
+    :param points: 点列表，每个点是一个元组
+    :param labels: 标签列表，用于打印时标识
+    :type labels: Optional[List[str]]
     """
     if exact_solution is None:
         print("  精确解不可用 (None)")
@@ -2311,7 +2380,6 @@ if __name__ == "__main__":
             {"side": "top", "type": "dirichlet", "value": "sin(pi*x)"}
         ]
     )
-    # 非齐次边界 → 不匹配级数解 → exact_expression = None
     print(f"  精确解表达式: {result_3_2['exact_expression']}")
     if result_3_2["exact_solution"] is None: print(f"  无法匹配级数解，返回 None")
     if result_3_2["exact_solution"] is not None:
@@ -2426,7 +2494,6 @@ if __name__ == "__main__":
             {"side": "top", "type": "dirichlet", "value": "0"}
         ]
     )
-    # 初始条件不匹配四边齐次Dirichlet的级数形式 → fallback到MOL
     print(f"  精确解表达式: {result_4_3['exact_expression']}")
     if result_4_3["exact_solution"] is not None:
         print_exact_values(

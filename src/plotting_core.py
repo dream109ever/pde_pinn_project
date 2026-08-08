@@ -1,5 +1,6 @@
+# src/plotting_core.py
 """
-plotting_core.py - 纯绘图逻辑模块
+纯绘图逻辑模块。
 
 本模块包含所有绘图函数的"核心逻辑"，不依赖任何显示后端（如 plt.show、ipywidgets、Qt 等）。
 所有函数都接受 matplotlib.axes.Axes 作为第一个参数，在给定的坐标系上绘制图形。
@@ -18,24 +19,22 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from typing import Optional, Dict, List, Tuple, Callable
 
-# ============================================================================
 # 0. 辅助工具函数
-# ============================================================================
 def _safe_call_exact_func(exact_func, pts):
     """
     安全调用 exact_func，自动适配张量/标量/numpy 数组。
-    
+
     exact_func 可能来自：
         - sympy.lambdify: 接受 numpy 数组 (N, dim)，返回 numpy 数组 (N,)
         - scipy 插值: 接受 numpy 数组 (N, dim)，返回 numpy 数组 (N,)
         - 自定义函数: 接受 torch 张量或标量
-    
-    参数:
-        exact_func: 可调用对象
-        pts: torch.Tensor (N, dim) 点集
-    
-    返回:
-        numpy.ndarray (N,) 或 (N, 1)
+
+    :param exact_func: 可调用对象
+    :type exact_func: Callable
+    :param pts: 点集，形状 (N, dim)
+    :type pts: torch.Tensor
+    :return: 扁平化的一维数组，形状 (N,)
+    :rtype: Optional[np.ndarray]
     """
     if exact_func is None: return None
     def _to_float_array(arr):
@@ -91,34 +90,28 @@ def _safe_call_exact_func(exact_func, pts):
         except Exception:
             results.append(np.nan)
     return np.asarray(results).flatten()
-def _to_numpy(x):
-    """将 torch.Tensor 或 numpy 数组转为 numpy 数组"""
-    if torch.is_tensor(x):
-        return x.detach().cpu().numpy()
-    if isinstance(x, (list, tuple)):
-        return np.array(x)
-    return x
-def _get_label_dim(has_t: bool, dim: int) -> str:
-    """根据维度生成标签"""
-    if dim == 1 and not has_t:
-        return 'x'
-    elif dim == 1 and has_t:
-        return 'x, t'
-    elif dim == 2 and not has_t:
-        return 'x, y'
-    elif dim == 2 and has_t:
-        return 'x, y, t'
-    return ''
-# ============================================================================
+
 # 1. 数据准备函数
-# ============================================================================
 def prepare_1d_data(
     model: Optional[torch.nn.Module],
     x_range: Tuple[float, float],
     n_points: int = 200,
     exact_func: Optional[Callable] = None,
 ) -> Dict:
-    """准备一维稳态问题的绘图数据。"""
+    """
+    准备一维稳态问题的绘图数据。
+
+    :param model: 训练好的神经网络模型
+    :type model: Optional[torch.nn.Module]
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: Tuple[float, float]
+    :param n_points: 采样点数
+    :type n_points: int
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :return: 包含 'x', 'u_pred', 'u_true', 'error' 的字典
+    :rtype: Dict
+    """
     x_min, x_max = x_range
     x_test = torch.linspace(x_min, x_max, n_points).reshape(-1, 1)
     x_np = x_test.numpy().flatten()
@@ -151,7 +144,22 @@ def prepare_2d_data(
     n_points: int = 80,
     exact_func: Optional[Callable] = None,
 ) -> Dict:
-    """准备二维稳态问题的绘图数据。"""
+    """
+    准备二维稳态问题的绘图数据。
+
+    :param model: 训练好的神经网络模型
+    :type model: Optional[torch.nn.Module]
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: Tuple[float, float]
+    :param y_range: y 轴范围 (y_min, y_max)
+    :type y_range: Tuple[float, float]
+    :param n_points: 每个维度的采样点数
+    :type n_points: int
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :return: 包含 'X', 'Y', 'Z_pred', 'Z_true', 'error' 的字典
+    :rtype: Dict
+    """
     x_min, x_max = x_range
     y_min, y_max = y_range
     x_lin = torch.linspace(x_min, x_max, n_points)
@@ -190,18 +198,25 @@ def prepare_transient_1d_data(
     exact_func: Optional[Callable] = None,
 ) -> Dict:
     """
-    准备一维含时问题的绘图数据。
-    
-    返回:
-        'x': np.ndarray,
-        'u_pred': np.ndarray,
-        'u_true': np.ndarray or None,
-        'error': np.ndarray or None,
+    准备一维含时问题在固定时间 t_val 处的切片数据。
+
+    :param model: 训练好的神经网络模型
+    :type model: Optional[torch.nn.Module]
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: Tuple[float, float]
+    :param t_val: 固定的时间值
+    :type t_val: float
+    :param n_points: 采样点数
+    :type n_points: int
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :return: 包含 'x', 't_val', 'u_pred', 'u_true', 'error' 的字典
+    :rtype: Dict
     """
     x_min, x_max = x_range
     x_test = torch.linspace(x_min, x_max, n_points).reshape(-1, 1)
     t_test = torch.full_like(x_test, t_val)
-    pts = torch.cat([x_test, t_test], dim=1)  # 拼接为 (N, 2) 的输入 tensor [x, t]
+    pts = torch.cat([x_test, t_test], dim=1)
     x_np = x_test.numpy().flatten()
     # 1. PINN 网络预测
     u_pred = None
@@ -236,14 +251,22 @@ def prepare_transient_2d_data(
     exact_func: Optional[Callable] = None,
 ) -> Dict:
     """
-    准备二维含时问题的绘图数据。
-    
-    返回:
-        'X': np.ndarray,    # 网格 X
-        'Y': np.ndarray,    # 网格 Y
-        'Z_pred': np.ndarray,
-        'Z_true': np.ndarray or None,
-        'error': np.ndarray or None,
+    准备二维含时问题在固定时间 t_val 处的切片数据。
+
+    :param model: 训练好的神经网络模型
+    :type model: Optional[torch.nn.Module]
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: Tuple[float, float]
+    :param y_range: y 轴范围 (y_min, y_max)
+    :type y_range: Tuple[float, float]
+    :param t_val: 固定的时间值
+    :type t_val: float
+    :param n_points: 每个维度的采样点数
+    :type n_points: int
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :return: 包含 'X', 'Y', 't_val', 'Z_pred', 'Z_true', 'error' 的字典
+    :rtype: Dict
     """
     x_min, x_max = x_range
     y_min, y_max = y_range
@@ -284,7 +307,22 @@ def prepare_1d_time_slice_data(
     n_points: int = 200,
     exact_func: Optional[Callable] = None,
 ) -> Dict:
-    """准备固定 x 处 u 随时间变化的数据"""
+    """
+    准备固定 x 位置处 u 随时间变化的数据。
+
+    :param model: 训练好的神经网络模型
+    :type model: torch.nn.Module
+    :param x_val: 固定的 x 值
+    :type x_val: float
+    :param t_range: t 轴范围 (t_min, t_max)
+    :type t_range: Tuple[float, float]
+    :param n_points: 采样点数
+    :type n_points: int
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :return: 包含 't', 'u_pred', 'u_true', 'error' 的字典
+    :rtype: Dict
+    """
     t_min, t_max = t_range
     t_test = torch.linspace(t_min, t_max, n_points).reshape(-1, 1)
     x_vals = torch.full((n_points, 1), x_val)
@@ -306,9 +344,8 @@ def prepare_1d_time_slice_data(
         result['u_true'] = None
         result['error'] = None
     return result
-# ============================================================================
+
 # 2. 绘图函数
-# ============================================================================
 def draw_loss_curve(
     ax: plt.Axes,
     history: Dict[str, List[float]],
@@ -320,15 +357,23 @@ def draw_loss_curve(
 ):
     """
     在给定的 Axes 上绘制损失曲线。
-    
-    参数:
-        ax: matplotlib Axes
-        history: 包含 'total_loss', 'pde_loss', 'bc_loss' 的字典
-        log_scale: 是否使用对数 Y 轴
-        title: 图标题
-        xlabel: X 轴标签
-        ylabel: Y 轴标签
-        colors: 自定义颜色字典，如 {'total_loss': 'b', 'pde_loss': 'r', 'bc_loss': 'g'}
+
+    :param ax: matplotlib Axes
+    :type ax: plt.Axes
+    :param history: 包含 'total_loss', 'pde_loss', 'bc_loss' 的字典
+    :type history: Dict[str, List[float]]
+    :param log_scale: 是否使用对数 Y 轴
+    :type log_scale: bool
+    :param title: 图标题
+    :type title: str
+    :param xlabel: X 轴标签
+    :type xlabel: str
+    :param ylabel: Y 轴标签
+    :type ylabel: str
+    :param colors: 自定义颜色字典，如 {'total_loss': 'b', 'pde_loss': 'r', 'bc_loss': 'g'}
+    :type colors: Optional[Dict[str, str]]
+    :return: 绘制的 Axes
+    :rtype: plt.Axes
     """
     colors = colors or {
         'total_loss': 'b',
@@ -337,15 +382,11 @@ def draw_loss_curve(
         'ic_loss': 'orange',
     }
     epochs = range(1, len(history['total_loss']) + 1)
-    # 绘制总损失
     ax.plot(epochs, history['total_loss'], color=colors['total_loss'], label='Total Loss', linewidth=2)
-    # 绘制 PDE 损失
     if 'pde_loss' in history and history['pde_loss']:
         ax.plot(epochs, history['pde_loss'], color=colors['pde_loss'], label='PDE Loss', linestyle='--', linewidth=1.5)
-    # 绘制 BC 损失
     if 'bc_loss' in history and history['bc_loss']:
         ax.plot(epochs, history['bc_loss'], color=colors['bc_loss'], label='BC Loss', linestyle='-.', linewidth=1.5)
-    # 绘制 IC 损失
     if 'ic_loss' in history and history['ic_loss']:
         ax.plot(epochs, history['ic_loss'], color=colors.get('ic_loss', 'orange'), label='IC Loss', linestyle=':', linewidth=1.5)
     if log_scale:
@@ -368,26 +409,32 @@ def draw_1d_solution(
 ):
     """
     在给定的 Axes 上绘制一维解（预测 vs 真实）。
-    
-    参数:
-        ax: matplotlib Axes
-        x: x 坐标数组 (N,)
-        u_pred: 预测值数组 (N,)
-        u_true: 真实解数组 (N,)，可选
-        title: 图标题
-        xlabel: X 轴标签
-        ylabel: Y 轴标签
-        show_error: 是否在图上显示误差
+
+    :param ax: matplotlib Axes
+    :type ax: plt.Axes
+    :param x: x 坐标数组，形状 (N,)
+    :type x: np.ndarray
+    :param u_pred: 预测值数组，形状 (N,)
+    :type u_pred: Optional[np.ndarray]
+    :param u_true: 真实解数组，形状 (N,)，可选
+    :type u_true: Optional[np.ndarray]
+    :param title: 图标题
+    :type title: str
+    :param xlabel: X 轴标签
+    :type xlabel: str
+    :param ylabel: Y 轴标签
+    :type ylabel: str
+    :param show_error: 是否在图上显示误差信息
+    :type show_error: bool
+    :return: 绘制的 Axes
+    :rtype: plt.Axes
     """
-    # 1. 绘制 PINN 预测
     if u_pred is not None:
         ax.plot(x, u_pred, 'b-', label='PINN Prediction', linewidth=2)
-    # 2. 绘制解析解（无 PINN 时用绿实线展示，有 PINN 时用红虚线对比）
     if u_true is not None:
         style = 'r--' if u_pred is not None else 'g-'
         label_text = 'Exact Solution' if u_pred is not None else 'Analytical Solution'
         ax.plot(x, u_true, style, label=label_text, linewidth=2)
-    # 3. 计算误差框（仅在二者均有效时计算）
     if u_pred is not None and u_true is not None and show_error:
         error = np.abs(u_pred - u_true)
         ax.text(0.05, 0.95, f"Max error: {error.max():.2e}\nMean error: {error.mean():.2e}",
@@ -412,28 +459,36 @@ def draw_1d_transient_slice(
 ):
     """
     在给定的 Axes 上绘制一维含时问题的切片。
-    
-    参数:
-        ax: matplotlib Axes
-        x: x 坐标数组 (N,)
-        u_pred: 预测值数组 (N,)
-        t_val: 当前时间值
-        u_true: 真实解数组 (N,)，可选
-        title: 图标题
-        xlabel: X 轴标签
-        show_error: 是否显示误差
+
+    :param ax: matplotlib Axes
+    :type ax: plt.Axes
+    :param x: x 坐标数组，形状 (N,)
+    :type x: np.ndarray
+    :param u_pred: 预测值数组，形状 (N,)
+    :type u_pred: Optional[np.ndarray]
+    :param t_val: 当前时间值
+    :type t_val: float
+    :param u_true: 真实解数组，形状 (N,)，可选
+    :type u_true: Optional[np.ndarray]
+    :param title: 图标题
+    :type title: Optional[str]
+    :param xlabel: X 轴标签
+    :type xlabel: str
+    :param ylabel: Y 轴标签
+    :type ylabel: str
+    :param show_error: 是否显示误差信息
+    :type show_error: bool
+    :return: 绘制的 Axes
+    :rtype: plt.Axes
     """
     if title is None:
         title = f"1D Transient Solution (t = {t_val:.2f})"
-    # 1. 绘制 PINN 预测
     if u_pred is not None:
         ax.plot(x, u_pred, 'b-', label='PINN Prediction', linewidth=2)
-    # 2. 绘制解析解（无预测值时采用绿实线显示，作为唯一数据来源）
     if u_true is not None:
         style = 'r--' if u_pred is not None else 'g-'
         label_text = 'Exact Solution' if u_pred is not None else 'Analytical Solution'
         ax.plot(x, u_true, style, label=label_text, linewidth=2)
-    # 3. 计算并展示误差框
     if u_pred is not None and u_true is not None and show_error:
         error = np.abs(u_pred - u_true)
         ax.text(
@@ -459,7 +514,30 @@ def draw_1d_time_slice(
     ylabel: str = "u(x=const, t)",
     show_error: bool = True,
 ):
-    """在给定的 Axes 上绘制固定 x 位置处 u 随时间变化的曲线。"""
+    """
+    在给定的 Axes 上绘制固定 x 位置处 u 随时间变化的曲线。
+
+    :param ax: matplotlib Axes
+    :type ax: plt.Axes
+    :param t: t 坐标数组，形状 (N,)
+    :type t: np.ndarray
+    :param u_pred: 预测值数组，形状 (N,)
+    :type u_pred: Optional[np.ndarray]
+    :param x_val: 固定的 x 值
+    :type x_val: float
+    :param u_true: 真实解数组，形状 (N,)，可选
+    :type u_true: Optional[np.ndarray]
+    :param title: 图标题
+    :type title: str
+    :param xlabel: X 轴标签
+    :type xlabel: str
+    :param ylabel: Y 轴标签
+    :type ylabel: str
+    :param show_error: 是否显示误差信息
+    :type show_error: bool
+    :return: 绘制的 Axes
+    :rtype: plt.Axes
+    """
     if u_pred is not None:
         ax.plot(t, u_pred, 'b-', label=f'PINN (x={x_val:.2f})', linewidth=2)
     if u_true is not None:
@@ -488,15 +566,23 @@ def draw_1d_multiple_models(
 ):
     """
     在给定的 Axes 上绘制多个模型的预测对比。
-    
-    参数:
-        ax: matplotlib Axes
-        x: x 坐标数组 (N,)
-        predictions: 字典 {label: u_pred}
-        u_true: 真实解，可选
-        title: 图标题
-        xlabel: X 轴标签
-        ylabel: Y 轴标签
+
+    :param ax: matplotlib Axes
+    :type ax: plt.Axes
+    :param x: x 坐标数组，形状 (N,)
+    :type x: np.ndarray
+    :param predictions: 字典 {label: u_pred}
+    :type predictions: Dict[str, np.ndarray]
+    :param u_true: 真实解，可选
+    :type u_true: Optional[np.ndarray]
+    :param title: 图标题
+    :type title: str
+    :param xlabel: X 轴标签
+    :type xlabel: str
+    :param ylabel: Y 轴标签
+    :type ylabel: str
+    :return: 绘制的 Axes
+    :rtype: plt.Axes
     """
     colors = plt.cm.tab10(np.linspace(0, 1, len(predictions)))
     for idx, (label, u_pred) in enumerate(predictions.items()):
@@ -526,19 +612,32 @@ def draw_2d_contour(
 ):
     """
     在给定的 Axes 上绘制二维伪彩色图（等高线填充）。
-    
-    参数:
-        ax: matplotlib Axes
-        X, Y: 网格坐标 (N, N)
-        Z: 解值 (N, N)
-        levels: 等高线层数
-        cmap: 颜色映射
-        title: 图标题
-        xlabel: X 轴标签
-        ylabel: Y 轴标签
-        colorbar_label: 颜色条标签
-        show_colorbar: 是否显示颜色条
-        fig: 用于添加颜色条的 Figure（如果为 None，尝试从 ax 获取）
+
+    :param ax: matplotlib Axes
+    :type ax: plt.Axes
+    :param X, Y: 网格坐标，形状 (N, N)
+    :type X: np.ndarray
+    :type Y: np.ndarray
+    :param Z: 解值，形状 (N, N)
+    :type Z: Optional[np.ndarray]
+    :param levels: 等高线层数
+    :type levels: int
+    :param cmap: 颜色映射
+    :type cmap: str
+    :param title: 图标题
+    :type title: str
+    :param xlabel: X 轴标签
+    :type xlabel: str
+    :param ylabel: Y 轴标签
+    :type ylabel: str
+    :param colorbar_label: 颜色条标签
+    :type colorbar_label: str
+    :param show_colorbar: 是否显示颜色条
+    :type show_colorbar: bool
+    :param fig: 用于添加颜色条的 Figure
+    :type fig: Optional[plt.Figure]
+    :return: 绘制的 Axes
+    :rtype: plt.Axes
     """
     if Z is None:
         ax.text(0.5, 0.5, "无有效图像数据", ha='center', va='center')
@@ -570,6 +669,30 @@ def draw_2d_error(
 ):
     """
     在给定的 Axes 上绘制误差图。
+
+    :param ax: matplotlib Axes
+    :type ax: plt.Axes
+    :param X, Y: 网格坐标，形状 (N, N)
+    :type X: np.ndarray
+    :type Y: np.ndarray
+    :param error: 误差值，形状 (N, N)
+    :type error: np.ndarray
+    :param levels: 等高线层数
+    :type levels: int
+    :param cmap: 颜色映射
+    :type cmap: str
+    :param title: 图标题
+    :type title: str
+    :param xlabel: X 轴标签
+    :type xlabel: str
+    :param ylabel: Y 轴标签
+    :type ylabel: str
+    :param show_colorbar: 是否显示颜色条
+    :type show_colorbar: bool
+    :param fig: 用于添加颜色条的 Figure
+    :type fig: Optional[plt.Figure]
+    :return: 绘制的 Axes
+    :rtype: plt.Axes
     """
     cp = ax.contourf(X, Y, error, levels=levels, cmap=cmap)
     ax.set_xlabel(xlabel)
@@ -595,16 +718,26 @@ def draw_2d_with_error(
 ):
     """
     在给定的两个 Axes 上分别绘制预测解和误差图。
-    
-    参数:
-        ax_pred: 用于绘制预测解的 Axes
-        ax_error: 用于绘制误差的 Axes
-        X, Y: 网格坐标
-        Z_pred: 预测解
-        Z_true: 真实解
-        title: 图标题
-        levels: 等高线层数
-        cmap: 颜色映射
+
+    :param ax_pred: 用于绘制预测解的 Axes
+    :type ax_pred: plt.Axes
+    :param ax_error: 用于绘制误差的 Axes
+    :type ax_error: plt.Axes
+    :param X, Y: 网格坐标，形状 (N, N)
+    :type X: np.ndarray
+    :type Y: np.ndarray
+    :param Z_pred: 预测解，形状 (N, N)
+    :type Z_pred: np.ndarray
+    :param Z_true: 真实解，形状 (N, N)
+    :type Z_true: np.ndarray
+    :param title: 图标题
+    :type title: str
+    :param levels: 等高线层数
+    :type levels: int
+    :param cmap: 颜色映射
+    :type cmap: str
+    :return: 绘制的两个 Axes
+    :rtype: Tuple[plt.Axes, plt.Axes]
     """
     draw_2d_contour(ax_pred, X, Y, Z_pred, levels, cmap, title)
     error = np.abs(Z_pred - Z_true)
@@ -631,20 +764,35 @@ def draw_3d_surface(
 ):
     """
     在给定的 3D Axes 上绘制曲面图。
-    
-    参数:
-        ax: 3D Axes
-        X, Y: 网格坐标
-        Z: 解值
-        cmap: 颜色映射
-        title: 图标题
-        xlabel: X 轴标签
-        ylabel: Y 轴标签
-        zlabel: Z 轴标签
-        alpha: 透明度
-        show_colorbar: 是否显示颜色条
-        fig: 用于添加颜色条的 Figure
-        elev, azim: 视角角度
+
+    :param ax: 3D Axes
+    :type ax: Axes3D
+    :param X, Y: 网格坐标，形状 (N, N)
+    :type X: np.ndarray
+    :type Y: np.ndarray
+    :param Z: 解值，形状 (N, N)
+    :type Z: np.ndarray
+    :param cmap: 颜色映射
+    :type cmap: str
+    :param title: 图标题
+    :type title: str
+    :param xlabel: X 轴标签
+    :type xlabel: str
+    :param ylabel: Y 轴标签
+    :type ylabel: str
+    :param zlabel: Z 轴标签
+    :type zlabel: str
+    :param alpha: 透明度
+    :type alpha: float
+    :param show_colorbar: 是否显示颜色条
+    :type show_colorbar: bool
+    :param fig: 用于添加颜色条的 Figure
+    :type fig: Optional[plt.Figure]
+    :param elev, azim: 视角角度
+    :type elev: float
+    :type azim: float
+    :return: 绘制的 Axes
+    :rtype: Axes3D
     """
     surf = ax.plot_surface(X, Y, Z, cmap=cmap, edgecolor='none', alpha=alpha)
     ax.set_xlabel(xlabel)
@@ -671,15 +819,35 @@ def draw_3d_compare(
 ):
     """
     在给定的两个 3D Axes 上分别绘制预测和真实解。
+
+    :param ax_pred: 用于绘制预测解的 3D Axes
+    :type ax_pred: Axes3D
+    :param ax_true: 用于绘制真实解的 3D Axes
+    :type ax_true: Axes3D
+    :param X, Y: 网格坐标，形状 (N, N)
+    :type X: np.ndarray
+    :type Y: np.ndarray
+    :param Z_pred: 预测解，形状 (N, N)
+    :type Z_pred: np.ndarray
+    :param Z_true: 真实解，形状 (N, N)
+    :type Z_true: np.ndarray
+    :param title: 图标题前缀
+    :type title: str
+    :param cmap_pred: 预测解的颜色映射
+    :type cmap_pred: str
+    :param cmap_true: 真实解的颜色映射
+    :type cmap_true: str
+    :return: 绘制的两个 Axes
+    :rtype: Tuple[Axes3D, Axes3D]
     """
     draw_3d_surface(ax_pred, X, Y, Z_pred, cmap_pred, f"{title} - PINN")
     draw_3d_surface(ax_true, X, Y, Z_true, cmap_true, f"{title} - Exact")
     return ax_pred, ax_true
 def draw_1d_transient_3d(
     ax: Axes3D,
-    X: np.ndarray,   # x 网格 (nx, nt)
-    T: np.ndarray,   # t 网格 (nx, nt)
-    Z: np.ndarray,   # u 值 (nx, nt)
+    X: np.ndarray,   
+    T: np.ndarray,   
+    Z: np.ndarray,   
     cmap: str = 'viridis',
     title: str = "1D Transient Evolution",
     xlabel: str = "x",
@@ -690,6 +858,29 @@ def draw_1d_transient_3d(
 ):
     """
     在给定的 3D Axes 上绘制一维含时问题的时空演化曲面。
+
+    :param ax: 3D Axes
+    :type ax: Axes3D
+    :param X, T: 网格坐标 (x, t)，形状 (nx, nt)
+    :type X: np.ndarray
+    :type T: np.ndarray
+    :param Z: 解值，形状 (nx, nt)
+    :type Z: np.ndarray
+    :param cmap: 颜色映射
+    :type cmap: str
+    :param title: 图标题
+    :type title: str
+    :param xlabel: X 轴标签
+    :type xlabel: str
+    :param ylabel: Y 轴标签（t）
+    :type ylabel: str
+    :param zlabel: Z 轴标签
+    :type zlabel: str
+    :param elev, azim: 视角角度
+    :type elev: float
+    :type azim: float
+    :return: 绘制的 Axes
+    :rtype: Axes3D
     """
     surf = ax.plot_surface(X, T, Z, cmap=cmap, edgecolor='none', alpha=0.85)
     ax.set_xlabel(xlabel)
@@ -709,14 +900,22 @@ def draw_2d_transient_slices(
 ):
     """
     在给定的 Axes 列表上绘制多个时间切片。
-    
-    参数:
-        axes: Axes 列表，长度应等于 len(t_values)
-        X, Y: 网格坐标
-        slices: 每个时间点的 Z 值列表
-        t_values: 对应的时间值列表
-        cmap: 颜色映射
-        title: 总标题
+
+    :param axes: Axes 列表，长度应等于 len(t_values)
+    :type axes: List[plt.Axes]
+    :param X, Y: 网格坐标，形状 (N, N)
+    :type X: np.ndarray
+    :type Y: np.ndarray
+    :param slices: 每个时间点的 Z 值列表
+    :type slices: List[np.ndarray]
+    :param t_values: 对应的时间值列表
+    :type t_values: List[float]
+    :param cmap: 颜色映射
+    :type cmap: str
+    :param title: 总标题（当前未使用，保留备用）
+    :type title: str
+    :return: 绘制的 Axes 列表
+    :rtype: List[plt.Axes]
     """
     if len(axes) != len(t_values):
         raise ValueError("axes 和 t_values 长度必须相同")
@@ -731,9 +930,8 @@ def draw_2d_transient_slices(
         ax.set_ylabel('y')
         ax.set_aspect('equal', adjustable='box')
     return axes
-# ============================================================================
+
 # 3. 子图辅助与整合
-# ============================================================================
 def create_subplots(
     nrows: int,
     ncols: int,
@@ -744,16 +942,28 @@ def create_subplots(
     **fig_kwargs
 ):
     """
-    创建 Figure 和 Axes 网格（便于统一管理子图）。
-    
-    返回:
-        (fig, axes): Figure 和 Axes 数组
+    创建 Figure 和 Axes 网格。
+
+    :param nrows: 行数
+    :type nrows: int
+    :param ncols: 列数
+    :type ncols: int
+    :param figsize: 图形尺寸 (width, height)
+    :type figsize: Optional[Tuple[float, float]]
+    :param sharex: 是否共享 X 轴
+    :type sharex: bool
+    :param sharey: 是否共享 Y 轴
+    :type sharey: bool
+    :param subplot_kw: 传递给 subplot 的关键字参数
+    :type subplot_kw: Optional[Dict]
+    :param fig_kwargs: 传递给 plt.subplots 的其他关键字参数
+    :return: (fig, axes) 元组，axes 为二维数组
+    :rtype: Tuple[plt.Figure, np.ndarray]
     """
     if figsize is None:
         figsize = (5 * ncols, 4 * nrows)
     subplot_kw = subplot_kw or {}
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=sharex, sharey=sharey, subplot_kw=subplot_kw, **fig_kwargs)
-    # 确保 axes 是二维数组，便于统一索引
     if nrows == 1 and ncols == 1:
         axes = np.array([[axes]])
     elif nrows == 1 or ncols == 1:
@@ -769,14 +979,20 @@ def draw_complete_solution(
 ):
     """
     根据问题配置自动绘制完整解。
-    
-    参数:
-        ax: matplotlib Axes
-        model: 神经网络模型
-        problem_config: 包含 dimension, has_t, domain 等
-        exact_func: 真实解函数
-        plot_type: 'auto', '1d', '2d', '3d'
-        `**kwargs`: 传递给具体绘图函数的参数
+
+    :param ax: matplotlib Axes
+    :type ax: plt.Axes
+    :param model: 神经网络模型
+    :type model: Optional[torch.nn.Module]
+    :param problem_config: 包含 dimension, has_t, domain 等键的配置字典
+    :type problem_config: Dict
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :param plot_type: 绘图类型，'auto', '1d', '2d', '3d'
+    :type plot_type: str
+    :param kwargs: 传递给具体绘图函数的额外参数
+    :return: 绘制的 Axes
+    :rtype: plt.Axes
     """
     dim = problem_config.get('dimension', 1)
     has_t = problem_config.get('has_t', False)
@@ -797,7 +1013,6 @@ def draw_complete_solution(
         x_range = domain.get('x', (0, 1))
         y_range = domain.get('y', (0, 1))
         data = prepare_2d_data(model, x_range, y_range, n_points=kwargs.get('n_points', 80), exact_func=exact_func)
-        # 如果 Z_pred 为 None，自动取 Z_true 进行绘图
         display_Z = data['Z_pred'] if data['Z_pred'] is not None else data['Z_true']
         draw_2d_contour(ax, data['X'], data['Y'], display_Z, title=kwargs.get('title', '2D Solution'))
     else:

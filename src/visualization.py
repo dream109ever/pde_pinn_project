@@ -1,5 +1,6 @@
+# src/visualization.py
 """
-visualization.py - Notebook 环境下的可视化包装层
+Notebook 环境下的可视化包装层。
 
 本模块依赖 plotting_core 提供绘图逻辑，仅负责 Notebook 环境下的展示。
 所有绘图函数都调用 plotting_core 中的 draw_* 函数 + 数据准备函数，
@@ -25,11 +26,21 @@ from .plotting_core import (
     draw_3d_surface,
     draw_3d_compare,
 )
-# ============================================================================
+
 # 绘图函数
-# ============================================================================
 def plot_loss_history(history, figsize=(10, 6), log_scale=True, save_path=None):
-    """绘制训练损失曲线（Notebook 版本）"""
+    """
+    绘制训练损失曲线（Notebook 版本）。
+
+    :param history: 包含 'total_loss', 'pde_loss', 'bc_loss' 的训练历史字典
+    :type history: dict
+    :param figsize: 图形尺寸 (width, height)
+    :type figsize: tuple
+    :param log_scale: 是否使用对数 Y 轴
+    :type log_scale: bool
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
+    """
     fig, ax = plt.subplots(figsize=figsize)
     draw_loss_curve(ax, history, log_scale)
     if save_path:
@@ -43,14 +54,28 @@ def plot_1d_solution(
     title='1D Steady Solution',
     save_path=None,
 ):
-    """一维稳态问题：双子图对比（曲线对比 + 绝对误差曲线 + 全局 L2 指标）"""
+    """
+    一维稳态问题：双子图对比（曲线对比 + 绝对误差曲线 + 全局 L2 指标）。
+
+    :param model: 训练好的神经网络模型
+    :type model: torch.nn.Module
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: tuple
+    :param n_points: 采样点数
+    :type n_points: int
+    :param true_func: 真实解函数
+    :type true_func: Optional[Callable]
+    :param title: 图标题
+    :type title: str
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
+    """
     data = prepare_1d_data(model, x_range, n_points, true_func)
     x = data['x']
     u_pred = data['u_pred']
     u_true = data['u_true']
     if u_true is not None:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-        # 左图：预测解 vs 真实解
         ax1.plot(x, u_pred, 'b-', label='PINN Prediction', linewidth=2)
         ax1.plot(x, u_true, 'r--', label='Exact Solution', linewidth=2)
         ax1.set_title('1D Prediction vs Exact Solution', fontsize=11, fontweight='bold')
@@ -58,7 +83,6 @@ def plot_1d_solution(
         ax1.set_ylabel('u(x)')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
-        # 右图：绝对误差曲线
         abs_err = np.abs(u_pred - u_true)
         ax2.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=2)
         ax2.fill_between(x, abs_err, color='magenta', alpha=0.15)
@@ -66,7 +90,6 @@ def plot_1d_solution(
         ax2.set_xlabel('x')
         ax2.set_ylabel('$|u_{pred} - u_{true}|$')
         ax2.grid(True, alpha=0.3)
-        # 全局量化指标 Text Box 标注
         l2_rel_err = np.linalg.norm(u_pred - u_true) / (np.linalg.norm(u_true) + 1e-8)
         text_str = (
             "$\mathbf{Global\ Metrics}$\n"
@@ -103,7 +126,24 @@ def plot_1d_transient_interactive(
     title: str = "1D Transient Solution",
     save_path: Optional[str] = None,
 ):
-    """一维含时问题：交互式双子图（滑块控制 + 曲线对比 + 绝对误差曲线 + 动态 L2 指标）"""
+    """
+    一维含时问题：交互式双子图（滑块控制 + 曲线对比 + 绝对误差曲线 + 动态 L2 指标）。
+
+    :param model: 训练好的神经网络模型
+    :type model: torch.nn.Module
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: tuple
+    :param t_range: t 轴范围 (t_min, t_max)
+    :type t_range: tuple
+    :param n_points: 采样点数
+    :type n_points: int
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :param title: 图标题前缀
+    :type title: str
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
+    """
     x_min, x_max = x_range
     t_min, t_max = t_range
     def _update_plot(t_val):
@@ -114,7 +154,6 @@ def plot_1d_transient_interactive(
         u_true = data['u_true']
         if u_true is not None:
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-            # 左图：预测解 vs 真实解 (当前时刻 t)
             ax1.plot(x, u_pred, 'b-', label=f'PINN (t={t_val:.3f})', linewidth=2)
             ax1.plot(x, u_true, 'r--', label='Exact', linewidth=2)
             ax1.set_title(f'1D Solution Profile (t = {t_val:.3f})', fontsize=11, fontweight='bold')
@@ -122,7 +161,6 @@ def plot_1d_transient_interactive(
             ax1.set_ylabel('u(x, t)')
             ax1.legend()
             ax1.grid(True, alpha=0.3)
-            # 右图：绝对误差曲线 (当前时刻 t)
             abs_err = np.abs(u_pred - u_true)
             ax2.plot(x, abs_err, 'm-', label='Absolute Error', linewidth=2)
             ax2.fill_between(x, abs_err, color='magenta', alpha=0.15)
@@ -130,7 +168,6 @@ def plot_1d_transient_interactive(
             ax2.set_xlabel('x')
             ax2.set_ylabel('$|u_{pred} - u_{true}|$')
             ax2.grid(True, alpha=0.3)
-            # 动态量化指标 Text Box
             l2_rel_err = np.linalg.norm(u_pred - u_true) / (np.linalg.norm(u_true) + 1e-8)
             text_str = (
                 f"$\mathbf{{Metrics\ at\ t={t_val:.3f}}}$\n"
@@ -179,7 +216,24 @@ def plot_1d_time_slice(
     title: str = "Time Evolution at Fixed x",
     save_path: Optional[str] = None,
 ):
-    """绘制固定 x 位置处 u 随时间变化的曲线（Notebook 版本）"""
+    """
+    绘制固定 x 位置处 u 随时间变化的曲线（Notebook 版本）。
+
+    :param model: 训练好的神经网络模型
+    :type model: torch.nn.Module
+    :param x_val: 固定的 x 值
+    :type x_val: float
+    :param t_range: t 轴范围 (t_min, t_max)
+    :type t_range: tuple
+    :param n_points: 采样点数
+    :type n_points: int
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :param title: 图标题
+    :type title: str
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
+    """
     data = prepare_1d_time_slice_data(model, x_val, t_range, n_points, exact_func)
     fig, ax = plt.subplots(figsize=(8, 5))
     draw_1d_time_slice(ax, data['t'], data['u_pred'], x_val, data['u_true'], title)
@@ -195,7 +249,24 @@ def plot_comparison_1d_multiple(
     title='Comparison',
     save_path=None,
 ):
-    """比较多个模型的预测结果（一维）"""
+    """
+    比较多个模型的预测结果（一维）。
+
+    :param models: 模型列表
+    :type models: list
+    :param labels: 每个模型对应的标签列表
+    :type labels: list
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: tuple
+    :param n_points: 采样点数
+    :type n_points: int
+    :param true_func: 真实解函数
+    :type true_func: Optional[Callable]
+    :param title: 图标题
+    :type title: str
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
+    """
     x = torch.linspace(x_range[0], x_range[1], n_points).reshape(-1, 1)
     x_np = x.numpy().flatten()
     predictions = {}
@@ -220,14 +291,30 @@ def plot_2d_solution(
     title='2D Steady Solution',
     save_path=None,
 ):
-    """二维稳态问题：双子图（3D 预测曲面 + 2D 绝对误差云图 + 全局 L2 指标）"""
+    """
+    二维稳态问题：双子图（3D 预测曲面 + 2D 绝对误差云图 + 全局 L2 指标）。
+
+    :param model: 训练好的神经网络模型
+    :type model: torch.nn.Module
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: tuple
+    :param y_range: y 轴范围 (y_min, y_max)
+    :type y_range: tuple
+    :param n_points: 每个维度的采样点数
+    :type n_points: int
+    :param true_func: 真实解函数
+    :type true_func: Optional[Callable]
+    :param title: 图标题
+    :type title: str
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
+    """
     data = prepare_2d_data(model, x_range, y_range, n_points, true_func)
     X, Y = data['X'], data['Y']
     Z_pred = data['Z_pred']
     if true_func is not None:
         Z_true = data['Z_true']
         fig = plt.figure(figsize=(15, 6))
-        # 左图：3D 预测解曲面图
         ax1 = fig.add_subplot(1, 2, 1, projection='3d')
         surf = ax1.plot_surface(
             X, Y, Z_pred,
@@ -242,7 +329,6 @@ def plot_2d_solution(
         ax1.set_zlabel('u')
         ax1.view_init(elev=30, azim=-60)
         fig.colorbar(surf, ax=ax1, shrink=0.5, aspect=10, pad=0.08)
-        # 右图：2D 绝对误差分布云图
         ax2 = fig.add_subplot(1, 2, 2)
         abs_error = np.abs(Z_pred - Z_true)
         cf = ax2.contourf(X, Y, abs_error, levels=50, cmap='inferno')
@@ -251,7 +337,6 @@ def plot_2d_solution(
         ax2.set_xlabel('X')
         ax2.set_ylabel('Y')
         ax2.set_aspect('equal')
-        # 全局量化指标 Text Box 标注
         l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
         text_str = (
             "$\mathbf{Global\ Metrics}$\n"
@@ -290,10 +375,26 @@ def plot_3d_surface(
     title='Predicted Solution Surface',
     save_path=None,
 ):
-    """三维曲面图（Notebook 版本）"""
+    """
+    三维曲面图（Notebook 版本）。
+
+    :param model: 训练好的神经网络模型
+    :type model: torch.nn.Module
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: tuple
+    :param y_range: y 轴范围 (y_min, y_max)
+    :type y_range: tuple
+    :param n_points: 每个维度的采样点数
+    :type n_points: int
+    :param true_func: 真实解函数
+    :type true_func: Optional[Callable]
+    :param title: 图标题
+    :type title: str
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
+    """
     data = prepare_2d_data(model, x_range, y_range, n_points, true_func)
     if true_func is not None:
-        # 并排显示预测和真实
         fig = plt.figure(figsize=(16, 6))
         ax1 = fig.add_subplot(1, 2, 1, projection='3d')
         ax2 = fig.add_subplot(1, 2, 2, projection='3d')
@@ -317,22 +418,38 @@ def plot_2d_transient_interactive(
     save_path: Optional[str] = None,
 ):
     """
-    二维含时问题的交互式可视化（带时间滑块）
+    二维含时问题的交互式可视化（带时间滑块）。
+
     - 左图：当前时刻 t 的 PINN 预测值 3D 曲面图
     - 右图：当前时刻 t 的 2D 绝对误差分布云图
+
+    :param model: 训练好的神经网络模型
+    :type model: torch.nn.Module
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: tuple
+    :param y_range: y 轴范围 (y_min, y_max)
+    :type y_range: tuple
+    :param t_range: t 轴范围 (t_min, t_max)
+    :type t_range: tuple
+    :param n_points: 每个维度的采样点数
+    :type n_points: int
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :param title: 图标题（保留备用）
+    :type title: str
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
     """
     x_min, x_max = x_range
     y_min, y_max = y_range
     t_min, t_max = t_range
     def _update_plot(t_val):
         plt.close('all')
-        # 1. 准备数据
         data = prepare_transient_2d_data(model, x_range, y_range, t_val, n_points, exact_func)
         X, Y = data['X'], data['Y']
         Z_pred = data['Z_pred']
         if exact_func is not None:
             fig = plt.figure(figsize=(12.5, 6))
-            # 左图：3D 预测解曲面图 (3D Surface Plot)
             ax1 = fig.add_subplot(1, 2, 1, projection='3d')
             surf = ax1.plot_surface(
                 X, Y, Z_pred, 
@@ -345,21 +462,17 @@ def plot_2d_transient_interactive(
             ax1.set_xlabel('X')
             ax1.set_ylabel('Y')
             ax1.set_zlabel('u')
-            # 调整 3D 图视角的初始角度（可按需修改 elev 和 azim）
             ax1.view_init(elev=30, azim=-60)
             fig.colorbar(surf, ax=ax1, shrink=0.5, aspect=10, pad=0.08)
-            # 右图：2D 绝对误差分布图 (2D Error Contour)
             ax2 = fig.add_subplot(1, 2, 2)
             Z_true = data['Z_true']
             error = np.abs(Z_pred - Z_true)
-            # 绘制误差云图
             cf = ax2.contourf(X, Y, error, levels=50, cmap='inferno')
             fig.colorbar(cf, ax=ax2, label='Absolute Error $|u_{pred} - u_{true}|$')
             ax2.set_title(f'2D Absolute Error Distribution (t = {t_val:.3f})', fontsize=11)
             ax2.set_xlabel('X')
             ax2.set_ylabel('Y')
             ax2.set_aspect('equal')
-            # 量化指标计算与图角 Text Box 标注
             l2_rel_err = np.linalg.norm(Z_pred - Z_true) / (np.linalg.norm(Z_true) + 1e-8)
             max_abs_err = error.max()
             mean_abs_err = error.mean()
@@ -384,7 +497,6 @@ def plot_2d_transient_interactive(
                 )
             )
         else:
-            # 若无真实解，仅绘制 3D 预测曲面图
             fig = plt.figure(figsize=(8, 6))
             ax1 = fig.add_subplot(1, 1, 1, projection='3d')
             surf = ax1.plot_surface(X, Y, Z_pred, cmap='viridis', edgecolor='none', alpha=0.95)
@@ -398,14 +510,13 @@ def plot_2d_transient_interactive(
         if save_path:
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.show()
-    # 配置交互滑块
     slider = widgets.FloatSlider(
         value=t_min,
         min=t_min,
         max=t_max,
-        step=(t_max - t_min) / 100,  # 划分为 100 步
+        step=(t_max - t_min) / 100,
         description='Time (t):',
-        continuous_update=False,     # 避免拖动滑块时触发多次 3D 重绘导致卡顿
+        continuous_update=False,
         style={'description_width': 'initial'},
         layout=widgets.Layout(width='500px')
     )
@@ -422,8 +533,25 @@ def plot_1d_transient_3d(
     save_path: Optional[str] = None,
 ):
     """
-    一维含时问题的 3D 时空演化曲面图（Notebook 版本）
-    适用于展示 u(x,t) 在整个时空域上的变化
+    一维含时问题的 3D 时空演化曲面图（Notebook 版本）。
+    适用于展示 u(x,t) 在整个时空域上的变化。
+
+    :param model: 训练好的神经网络模型，为 None 时仅绘制解析解
+    :type model: Optional[torch.nn.Module]
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: tuple
+    :param t_range: t 轴范围 (t_min, t_max)
+    :type t_range: tuple
+    :param n_x: x 方向采样点数
+    :type n_x: int
+    :param n_t: t 方向采样点数
+    :type n_t: int
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :param title: 图标题（保留备用）
+    :type title: str
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
     """
     x_min, x_max = x_range
     t_min, t_max = t_range
@@ -491,7 +619,26 @@ def plot_2d_transient_slices(
     save_path: Optional[str] = None,
 ):
     """
-    二维含时问题的多时间切片云图（Notebook 版本）
+    二维含时问题的多时间切片云图（Notebook 版本）。
+
+    :param model: 训练好的神经网络模型，为 None 时仅绘制解析解
+    :type model: Optional[torch.nn.Module]
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: tuple
+    :param y_range: y 轴范围 (y_min, y_max)
+    :type y_range: tuple
+    :param t_range: t 轴范围 (t_min, t_max)
+    :type t_range: tuple
+    :param n_points: 每个空间维度的采样点数
+    :type n_points: int
+    :param n_t: 时间切片数量
+    :type n_t: int
+    :param exact_func: 真实解函数
+    :type exact_func: Optional[Callable]
+    :param title: 图标题
+    :type title: str
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
     """
     t_values = np.linspace(t_range[0], t_range[1], n_t)
     fig, axes = plt.subplots(2, n_t, figsize=(3*n_t, 6))
@@ -499,7 +646,6 @@ def plot_2d_transient_slices(
         axes = np.array([[axes[0]], [axes[1]]])
     for idx, t_val in enumerate(t_values):
         data = prepare_transient_2d_data(model, x_range, y_range, t_val, n_points, exact_func)
-        # 第一行：预测（或解析解）
         Z_display = data['Z_pred'] if data['Z_pred'] is not None else data['Z_true']
         if Z_display is not None:
             cp1 = axes[0, idx].contourf(data['X'], data['Y'], Z_display, levels=30, cmap='viridis')
@@ -512,7 +658,6 @@ def plot_2d_transient_slices(
         axes[0, idx].set_ylabel('y')
         if idx == 0:
             axes[0, idx].set_ylabel('PINN' if data['Z_pred'] is not None else 'Analytical')
-        # 第二行：真实解（如果有）
         if data['Z_true'] is not None and data['Z_pred'] is not None:
             cp2 = axes[1, idx].contourf(data['X'], data['Y'], data['Z_true'], levels=30, cmap='plasma')
             axes[1, idx].set_xlabel('x')
@@ -527,9 +672,8 @@ def plot_2d_transient_slices(
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.show()
-# ============================================================================
+
 # 统一入口
-# ============================================================================
 def plot_solution(
     model,
     x_range,
@@ -543,6 +687,25 @@ def plot_solution(
 ):
     """
     统一的解可视化端口，根据参数自动选择一维、二维或三维绘图。
+
+    :param model: 训练好的神经网络模型
+    :type model: torch.nn.Module
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: tuple
+    :param y_range: y 轴范围 (y_min, y_max)，可选
+    :type y_range: Optional[tuple]
+    :param n_points: 采样点数
+    :type n_points: int
+    :param true_func: 真实解函数
+    :type true_func: Optional[Callable]
+    :param plot_type: 绘图类型，支持 'auto', '1d', '2d', '3d', 'transient_1d', 'transient_2d', 'time_slice'
+    :type plot_type: str
+    :param title: 图标题
+    :type title: Optional[str]
+    :param save_path: 图片保存路径，为 None 时不保存
+    :type save_path: Optional[str]
+    :param t_range: t 轴范围 (t_min, t_max)，瞬态绘图需要
+    :type t_range: Optional[tuple]
     """
     if y_range is None or plot_type == '1d':
         if title is None:
@@ -585,7 +748,26 @@ def quick_plot_from_trainer(
     plot_type='auto',
     t_range=None,
 ):
-    """从训练器快速生成损失曲线和解的对比图"""
+    """
+    从训练器快速生成损失曲线和解的对比图。
+
+    :param trainer: PINNTrainer 实例
+    :type trainer: PINNTrainer
+    :param x_range: x 轴范围 (x_min, x_max)
+    :type x_range: tuple
+    :param y_range: y 轴范围 (y_min, y_max)，可选
+    :type y_range: Optional[tuple]
+    :param n_points: 采样点数
+    :type n_points: int
+    :param true_func: 真实解函数
+    :type true_func: Optional[Callable]
+    :param save_dir: 图片保存目录
+    :type save_dir: Optional[str]
+    :param plot_type: 绘图类型
+    :type plot_type: str
+    :param t_range: t 轴范围 (t_min, t_max)，瞬态绘图需要
+    :type t_range: Optional[tuple]
+    """
     history = trainer.get_loss_history()
     if save_dir:
         plot_loss_history(history, save_path=f"{save_dir}/loss.png")
@@ -602,9 +784,8 @@ def quick_plot_from_trainer(
         plot_type=plot_type,
         t_range=t_range,
     )
-# ============================================================================
+
 # 独立测试
-# ============================================================================
 if __name__ == "__main__":
     print("=" * 70)
     print("可视化模块独立测试（依赖 plotting_core）")
