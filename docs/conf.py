@@ -17,12 +17,15 @@ release = '1.1.0'
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath('../src'))
+project_root = os.path.abspath('..')
+sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.join(project_root, 'src'))
 
 extensions = [
     'sphinx.ext.autodoc',  
     'sphinx.ext.viewcode', 
-    'sphinx.ext.mathjax',  
+    'sphinx.ext.mathjax',
+    'sphinx.ext.napoleon',
 ]
 
 mathjax_path = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js'
@@ -61,7 +64,6 @@ autodoc_default_options = {
     'private-members': False,
     'show-inheritance': True,
     'special-members': '__init__',
-    'exclude-members': '__weakref__',
 }
 
 autodoc_mock_imports = [
@@ -69,7 +71,15 @@ autodoc_mock_imports = [
     'PyQt5.QtCore',
     'PyQt5.QtWidgets',
     'PyQt5.QtGui',
+    'PyQt5.QtXml',
+    'PyQt5.QtChart',
     'ipywidgets',
     'IPython',
     'IPython.display',
+    'matplotlib',
+    'matplotlib.backends',
+    'matplotlib.backends.backend_qt5agg',
+    'mpl_toolkits',
 ]
+
+autodoc_import_modules = True
