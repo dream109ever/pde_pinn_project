@@ -1,20 +1,32 @@
+# ui/pages/solver_page.py
+"""
+求解页面模块。
+
+提供 PDE 方程配置与求解的主界面，包含方程系数项管理、定解条件管理、
+方程预览、求解执行、日志输出和结果展示等功能。
+"""
 import re
-from PyQt5.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QComboBox, QLabel, QPushButton,
-    QTextEdit, QLineEdit, QMessageBox, QSpinBox, QGroupBox
-)
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QComboBox, QLabel, QPushButton, QTextEdit, QLineEdit, QMessageBox, QSpinBox, QGroupBox
 from PyQt5.QtCore import Qt
 from .base_widgets import ClearableListWidget, InputPage, PreviewLabel, SolverThread
 from .plot_window_page import PlotWindow
 
 class SolverPage(InputPage):
+    """求解页面：继承 InputPage，实现方程配置与后台求解功能。"""
     def __init__(self, back_to_menu_cb, parent=None):
+        """
+        :param back_to_menu_cb: 返回菜单的回调函数
+        :type back_to_menu_cb: Callable
+        :param parent: 父控件
+        :type parent: Optional[QWidget]
+        """
         super().__init__(back_to_menu_cb, parent)
         self.current_result = None
         self.solver_thread = None
         self.init_ui()
         self.on_type_changed()
     def init_ui(self):
+        """初始化用户界面布局。"""
         main_layout = QVBoxLayout(self)
         # 1. 顶部：问题类型、阶数、源项与定义域设置
         self.top_group = QGroupBox("问题控制参数")
@@ -102,6 +114,7 @@ class SolverPage(InputPage):
         bottom_layout.addWidget(back_btn)
         main_layout.addLayout(bottom_layout)
     def start_solving(self):
+        """启动后台求解线程。"""
         if not self.terms:
             QMessageBox.warning(self, "警告", "请先添加方程系数项！")
             return
@@ -153,6 +166,12 @@ class SolverPage(InputPage):
         self.solver_thread.error_signal.connect(self.on_solve_error)
         self.solver_thread.start()
     def on_solve_finished(self, result_data):
+        """
+        求解完成槽函数。
+
+        :param result_data: 求解结果数据字典
+        :type result_data: dict
+        """
         self.solve_btn.setEnabled(True)
         self.current_result = result_data
         raw_expr = result_data.get('exact_expr')
@@ -164,7 +183,14 @@ class SolverPage(InputPage):
         self.plot_btn.setEnabled(True)
         QMessageBox.information(self, "成功", "方程求解成功！")
     def _format_numeric_expr(self, expr_str: str) -> str:
-        """将表达式中的浮点数精简到合理精度"""
+        """
+        将表达式中的浮点数精简到合理精度。
+
+        :param expr_str: 原始表达式字符串
+        :type expr_str: str
+        :return: 格式化后的表达式字符串
+        :rtype: str
+        """
         def format_num(match):
             num = float(match.group(0))
             if abs(num - round(num)) < 1e-6:
@@ -172,12 +198,19 @@ class SolverPage(InputPage):
             return f"{num:.6g}"
         return re.sub(r'(?<![A-Za-z)])-?\d+\.\d+', format_num, expr_str)
     def on_solve_error(self, err_msg):
+        """
+        求解错误槽函数。
+
+        :param err_msg: 错误信息
+        :type err_msg: str
+        """
         self.solve_btn.setEnabled(True)
         self.plot_btn.setEnabled(False)
         self.result_latex.set_latex(r"\text{无精确解或无法求解}")
         self.log_text.append(f"<font color='red'>{err_msg}</font>")
         QMessageBox.warning(self, "求解失败", err_msg)
     def open_plot_window(self):
+        """打开绘图窗口。"""
         if self.current_result:
             plot_dlg = PlotWindow(self.current_result, self)
             plot_dlg.exec_()

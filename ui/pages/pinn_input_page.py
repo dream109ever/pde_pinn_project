@@ -1,20 +1,34 @@
-# ui/pages/equation_input_page.py
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QLabel, QPushButton,
-    QLineEdit, QMessageBox, QSpinBox, QGroupBox, QSizePolicy
-)
+# ui/pages/pinn_input_page.py
+"""
+PINN 模式输入页面模块。
+
+提供 PINN 神经网络模式的方程配置界面，包含问题类型选择、定义域设置、
+方程系数项管理、定解条件管理、实时预览和配置校验功能。
+"""
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QLabel, QPushButton, QLineEdit, QMessageBox, QSpinBox, QGroupBox, QSizePolicy
 from PyQt5.QtCore import Qt, pyqtSignal
 from .base_widgets import ClearableListWidget, InputPage, PreviewLabel
 from src.network_factory import suggest_network
 
 class PinnInputPage(InputPage):
-    """第一步：输入方程与定解条件页"""
+    """
+    PINN 模式第一步：输入方程与定解条件页。
+
+    :signal equation_configured: 配置完成信号，携带完整的配置字典
+    """
     equation_configured = pyqtSignal(dict)
     def __init__(self, back_to_menu_cb, parent=None):
+        """
+        :param back_to_menu_cb: 返回菜单的回调函数
+        :type back_to_menu_cb: Callable
+        :param parent: 父控件
+        :type parent: Optional[QWidget]
+        """
         super().__init__(back_to_menu_cb, parent)
         self.init_ui()
         self.on_type_changed()
     def init_ui(self):
+        """初始化用户界面布局。"""
         main_layout = QVBoxLayout(self)
         # ===== 1. 顶部：问题控制参数 =====
         self.top_group = QGroupBox("问题控制参数")
@@ -47,6 +61,7 @@ class PinnInputPage(InputPage):
         row2_layout.setSpacing(15)
         row2_layout.addWidget(QLabel("<b>定义域范围:</b>"))
         def create_axis_range_widget(label_text, min_val, max_val):
+            """创建单轴的范围输入控件组。"""
             container = QWidget()
             container.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             h_layout = QHBoxLayout(container)
@@ -122,8 +137,12 @@ class PinnInputPage(InputPage):
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.next_btn)
         main_layout.addLayout(bottom_layout)
-
     def on_type_changed(self):
+        """
+        问题类型切换时的响应。
+
+        重写基类方法，增加定义域控件的显隐控制。
+        """
         p_type = self.type_combo.currentText()
         has_y = "2D" in p_type
         has_t = "含时" in p_type
@@ -136,9 +155,13 @@ class PinnInputPage(InputPage):
         self.y_widget.setVisible(has_y)
         self.t_widget.setVisible(has_t)
         self.clear_all_inputs()
-
     def proceed_to_next_step(self):
-        """校验条件，构建标准配置字典并传递给下一页"""
+        """
+        校验条件，构建标准配置字典并传递给下一页。
+
+        校验内容包括：方程项存在性、定义域合法性、定解条件完整性、
+        二维稳态方程格式的合法性等。
+        """
         if not self.terms:
             QMessageBox.warning(self, "警告", "条件不齐全：请先至少添加一项方程系数！")
             return

@@ -1,10 +1,15 @@
 # ui/pages/pinn_plot_page.py
+"""
+PINN 训练与绘图页面模块。
+
+提供 PINN 模式的网络配置、后台训练、损失曲线实时更新和预测解动态绘图功能。
+包含训练线程和页面界面两部分。
+"""
 import json
 import torch
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
-    QMessageBox, QGroupBox, QFormLayout, QSplitter, QComboBox, QSpinBox,
-    QDoubleSpinBox, QCheckBox, QLineEdit, QStackedWidget, QFrame
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox, QGroupBox, 
+    QFormLayout, QSplitter, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QStackedWidget
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import matplotlib as mpl
@@ -20,22 +25,42 @@ mpl.rcParams['ytick.labelsize'] = 11
 mpl.rcParams['legend.fontsize'] = 11
 
 class PINNTrainerThread(QThread):
+    """
+    PINN 后台训练线程。
+
+    在独立线程中执行 PINN 训练，避免阻塞 UI。
+    支持分块训练、进度信号、损失信号和中断控制。
+    """
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int, float, object, object)
     loss_signal = pyqtSignal(int, float, float, float)
     finished_signal = pyqtSignal()
-
     def __init__(self, problem_config: dict, total_epochs: int = 1500, chunk_epochs: int = 50):
+        """
+        :param problem_config: 问题配置字典
+        :type problem_config: dict
+        :param total_epochs: 总训练轮数
+        :type total_epochs: int
+        :param chunk_epochs: 每块训练的轮数
+        :type chunk_epochs: int
+        """
         super().__init__()
         self.problem_config = problem_config
         self.total_epochs = total_epochs
         self.chunk_epochs = chunk_epochs
         self._is_running = True
-
     def stop(self):
+        """请求停止训练。"""
         self._is_running = False
-
     def _build_loss_functions(self, config):
+        """
+        根据配置构建损失函数。
+
+        :param config: 问题配置字典
+        :type config: dict
+        :return: 损失函数三元组 (pde_loss, bc_loss, total_loss)
+        :rtype: tuple
+        """
         dimension = config["dimension"]
         has_t = config["has_t"]
         order = config.get("order", 2)
@@ -107,8 +132,8 @@ class PINNTrainerThread(QThread):
                     for s in ["left", "right", "bottom", "top"]
                 }
             )
-
     def run(self):
+        """执行后台训练任务。"""
         try:
             config = self.problem_config
             total_epochs = config.get("_user_epochs", self.total_epochs)
@@ -157,7 +182,6 @@ class PINNTrainerThread(QThread):
             # 6. 分块训练
             current_epoch = 0
             loss_history = {'total': [], 'pde': [], 'bc': []}
-            # 训练回调：每5步发送一次损失数据
             def loss_callback(epoch, total_loss, pde_loss, bc_loss, total_epochs=total_epochs):
                 loss_history['total'].append(total_loss)
                 loss_history['pde'].append(pde_loss)
@@ -189,9 +213,14 @@ class PINNTrainerThread(QThread):
             self.finished_signal.emit()
 
 class PinnPlotPage(BasePage):
-    """PINN 求解计算、网络配置与实时动态绘图页"""
-
+    """PINN 求解计算、网络配置与实时动态绘图页。"""
     def __init__(self, back_to_input_cb, parent=None):
+        """
+        :param back_to_input_cb: 返回输入页的回调函数
+        :type back_to_input_cb: Callable
+        :param parent: 父控件
+        :type parent: Optional[QWidget]
+        """
         super().__init__(parent)
         self.back_to_input_cb = back_to_input_cb
         self.problem_config = None
@@ -206,8 +235,8 @@ class PinnPlotPage(BasePage):
         self.init_ui()
         ThemeManager.instance().theme_changed.connect(lambda _: self.apply_theme())
         self.apply_theme()
-
     def init_ui(self):
+        """初始化用户界面布局。"""
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(QLabel("PINN 求解与实时绘图"))
         splitter = QSplitter(Qt.Horizontal)
@@ -302,10 +331,16 @@ class PinnPlotPage(BasePage):
         bottom_nav.addWidget(back_btn)
         bottom_nav.addStretch()
         main_layout.addLayout(bottom_nav)
-    
     # ========== 接收配置 ==========
     def set_problem_config(self, config: dict):
-        """接收上一页传递的纯配置字典。"""
+        """
+        接收上一页传递的纯配置字典。
+
+        支持配置变更检测：当方程配置改变时自动停止旧训练线程。
+
+        :param config: 问题配置字典
+        :type config: dict
+        """
         # ===== 1. 计算新配置的哈希值 =====
         try:
             key_fields = {
@@ -379,6 +414,7 @@ class PinnPlotPage(BasePage):
                 pass
     # ========== 训练控制 ==========
     def start_solving(self):
+        """启动求解与训练流程。"""
         if not self.problem_config:
             QMessageBox.warning(self, "错误", "未检测到有效的方程配置！")
             return
@@ -423,7 +459,12 @@ class PinnPlotPage(BasePage):
         self.solver_thread.error_signal.connect(self.on_solve_error)
         self.solver_thread.start()
     def on_solve_finished(self, result_data):
-        """求解完成，保存结果并启动训练"""
+        """
+        求解完成槽函数，保存结果并启动训练。
+
+        :param result_data: 求解结果数据字典
+        :type result_data: dict
+        """
         self.log_text.append("✅ 求解完成，开始训练...")
         self.solved_result = result_data
         # 更新精确解显示
@@ -446,7 +487,12 @@ class PinnPlotPage(BasePage):
         self.trainer_thread.finished_signal.connect(self.on_training_finished)
         self.trainer_thread.start()
     def on_solve_error(self, err_msg):
-        """求解失败处理"""
+        """
+        求解失败处理。
+
+        :param err_msg: 错误信息
+        :type err_msg: str
+        """
         self._is_training = False
         self.solve_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
@@ -455,7 +501,7 @@ class PinnPlotPage(BasePage):
         self.log_text.append(f"求解失败: {err_msg}")
         QMessageBox.warning(self, "求解失败", err_msg)
     def on_training_finished(self):
-        """训练完成"""
+        """训练完成槽函数。"""
         self._is_training = False
         self.network_group.setEnabled(True)
         self.total_epochs_spin.setEnabled(True)
@@ -463,7 +509,7 @@ class PinnPlotPage(BasePage):
         self.stop_btn.setEnabled(False)
         self.log_text.append("✅ 训练完成！")
     def stop_solving(self):
-        """停止流程：需要同时停止两个线程"""
+        """停止流程：同时停止求解线程和训练线程。"""
         self._is_training = False
         if self.solver_thread and self.solver_thread.isRunning():
             self.solver_thread.terminate()
@@ -475,6 +521,7 @@ class PinnPlotPage(BasePage):
         self.stop_btn.setEnabled(False)
         self.log_text.append("⏹ 流程已中断。")
     def _auto_stop_training(self):
+        """自动停止旧训练线程（当配置变更时调用）。"""
         if self._is_training:
             self._is_training = False
             if self.solver_thread and self.solver_thread.isRunning():
@@ -490,8 +537,18 @@ class PinnPlotPage(BasePage):
             self.log_text.append("⏹ 已自动停止旧训练线程（保留最后一次结果）")
     # ========== 更新损失曲线 ==========
     def update_loss_plot(self, epoch: int, total_loss: float, pde_loss: float, bc_loss: float):
-        """每5步更新一次损失曲线（高频）"""
-        # 获取当前历史数据
+        """
+        每 5 步更新一次损失曲线。
+
+        :param epoch: 当前轮数
+        :type epoch: int
+        :param total_loss: 总损失
+        :type total_loss: float
+        :param pde_loss: PDE 损失
+        :type pde_loss: float
+        :param bc_loss: 边界条件损失
+        :type bc_loss: float
+        """
         if not hasattr(self, '_loss_history'):
             self._loss_history = {'total': [], 'pde': [], 'bc': []}
         self._loss_history['total'].append(total_loss)
@@ -503,10 +560,20 @@ class PinnPlotPage(BasePage):
             self._loss_history['total'] = self._loss_history['total'][-max_points:]
             self._loss_history['pde'] = self._loss_history['pde'][-max_points:]
             self._loss_history['bc'] = self._loss_history['bc'][-max_points:]
-        # 更新损失曲线
         self.loss_plot_widget.update_plot(self._loss_history)
     def update_plot_with_model(self, epoch: int, loss_val: float, model: torch.nn.Module, exact_func):
-        """每 chunk 更新一次当前显示的绘图控件"""
+        """
+        每 chunk 更新一次当前显示的绘图控件。
+
+        :param epoch: 当前轮数
+        :type epoch: int
+        :param loss_val: 当前损失值
+        :type loss_val: float
+        :param model: 训练中的神经网络模型
+        :type model: torch.nn.Module
+        :param exact_func: 精确解函数
+        :type exact_func: callable
+        """
         if not self.problem_config:
             return
         dim = self.problem_config.get("dimension", 1)
@@ -554,7 +621,11 @@ class PinnPlotPage(BasePage):
             )
         self.apply_theme()
     def apply_theme(self):
-        """应用主题颜色到所有 matplotlib 画布和 Qt 控件"""
+        """
+        应用主题颜色到所有 matplotlib 画布和 Qt 控件。
+
+        覆盖基类方法，统一管理页面内所有子控件的主题样式。
+        """
         try:
             theme = ThemeManager.instance().current
             bg_color = theme.card_bg

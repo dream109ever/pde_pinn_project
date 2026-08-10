@@ -1,3 +1,19 @@
+# ui/pages/base_widgets.py
+"""
+UI 基础控件模块。
+
+提供 PINN 求解器图形界面的基础页面类、对话框类和公共控件。
+包含：
+
+- BasePage: 支持主题切换和动态背景绘制的基础页面
+- BaseDialog: 支持主题切换的对话框基类
+- ClearableListWidget: 点击空白处取消选中的列表控件
+- AddTermDialog: 添加方程系数项的弹窗
+- AddConditionDialog: 添加定解条件的弹窗
+- InputPage: 方程输入页面的公共基类
+- PreviewLabel: 公式/文本显示控件
+- SolverThread: 后台求解线程
+"""
 import re
 import math
 from typing import Optional
@@ -8,12 +24,18 @@ from src.function_factory import solve_pde
 from ui.theme_manager import ThemeManager
 
 class BasePage(QWidget):
-    """支持全局配色切换的基础页面类"""
+    """支持全局配色切换的基础页面类。"""
     def __init__(self, parent=None):
         super().__init__(parent)
         ThemeManager.instance().theme_changed.connect(lambda _: self.update_styles())
         QTimer.singleShot(0, self.update_styles)
     def paintEvent(self, event):
+        """
+        自定义绘制事件：绘制动态渐变背景、柔和高光、正弦波流线和散落节点。
+
+        :param event: 绘制事件
+        :type event: QPaintEvent
+        """
         painter = QPainter(self)
         painter.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
         w, h = self.width(), self.height()
@@ -65,6 +87,7 @@ class BasePage(QWidget):
             painter.drawEllipse(QPointF(nx, ny), 3.0, 3.0)
         super().paintEvent(event)
     def update_styles(self):
+        """更新页面及子控件的样式，响应主题切换。"""
         theme = ThemeManager.instance().current
         if hasattr(self, 'eq_preview'): self.eq_preview.set_color(theme.text_primary)
         if hasattr(self, 'result_latex'): self.result_latex.set_color(theme.text_primary)
@@ -205,13 +228,17 @@ class BasePage(QWidget):
         """)
 
 class BaseDialog(QDialog):
-    """支持全局配色切换的对话框基类"""
+    """支持全局配色切换的对话框基类。"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.apply_theme()
         ThemeManager.instance().theme_changed.connect(self.apply_theme)
     def apply_theme(self):
-        """子类重写此方法以实现自定义样式"""
+        """
+        应用主题样式到对话框。
+
+        子类重写此方法以实现自定义样式。
+        """
         theme = ThemeManager.instance().current
         input_bg = "rgba(15, 23, 42, 0.6)" if theme.is_dark else "rgba(255, 255, 255, 0.9)"
         self.setStyleSheet(f"""
@@ -286,16 +313,28 @@ class BaseDialog(QDialog):
         """)
 
 class ClearableListWidget(QListWidget):
-    """点击列表空白处自动取消高亮选中的 QListWidget"""
+    """点击列表空白处自动取消高亮选中的 QListWidget。"""
     def mousePressEvent(self, event):
+        """
+        鼠标按下事件：点击空白区域时清除选中状态。
+
+        :param event: 鼠标事件
+        :type event: QMouseEvent
+        """
         item = self.itemAt(event.pos())
         if item is None:
             self.clearSelection()
         super().mousePressEvent(event)
 
 class AddTermDialog(BaseDialog):
-    """添加方程系数项弹窗：仅展示当前未被添加的可用项"""
+    """添加方程系数项弹窗：仅展示当前未被添加的可用项。"""
     def __init__(self, avail_terms: list, parent=None):
+        """
+        :param avail_terms: 可用项列表，每个元素为 (term_key, display_name)
+        :type avail_terms: list
+        :param parent: 父控件
+        :type parent: Optional[QWidget]
+        """
         super().__init__(parent)
         self.setWindowTitle("添加方程系数项")
         self.resize(320, 150)
@@ -317,13 +356,28 @@ class AddTermDialog(BaseDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
     def accept(self):
+        """确认添加：保存选中的项和系数。"""
         self.selected_term = self.term_combo.currentData()
         self.coefficient = self.coeff_input.text().strip() or "1.0"
         super().accept()
 
 class AddConditionDialog(BaseDialog):
-    """添加定解条件弹窗：按 1D/2D/含时 差异化配置，且位置/侧边严格互斥"""
+    """
+    添加定解条件弹窗。
+
+    按 1D/2D/含时 差异化配置，且位置/侧边严格互斥。
+    """
     def __init__(self, p_type: str, order: int, avail_slots: list, parent=None):
+        """
+        :param p_type: 问题类型字符串，如 "1D 稳态", "1D 含时", "2D 稳态", "2D 含时"
+        :type p_type: str
+        :param order: 方程阶数
+        :type order: int
+        :param avail_slots: 可用槽位列表，如 ["left", "right", "initial_pos"]
+        :type avail_slots: list
+        :param parent: 父控件
+        :type parent: Optional[QWidget]
+        """
         super().__init__(parent)
         self.p_type = p_type
         self.order = order
@@ -333,6 +387,7 @@ class AddConditionDialog(BaseDialog):
         self.condition_data = None
         self.init_ui()
     def init_ui(self):
+        """初始化 UI 控件。"""
         layout = QVBoxLayout(self)
         form = QFormLayout()
         if "1D 稳态" in self.p_type:
@@ -374,6 +429,7 @@ class AddConditionDialog(BaseDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
     def on_accept(self):
+        """确认添加：验证输入并构造条件数据字典。"""
         if "1D 稳态" in self.p_type:
             try:
                 pt_val = float(self.point_input.text().strip())
@@ -399,9 +455,18 @@ class AddConditionDialog(BaseDialog):
 
 class InputPage(BasePage):
     """
-    方程输入页面的公共基类
+    方程输入页面的公共基类。
+
+    提供方程项管理、定解条件管理、定义域读取、配置构建等公共功能。
+    子类需实现 init_ui() 方法创建具体布局。
     """
     def __init__(self, back_to_menu_cb, parent=None):
+        """
+        :param back_to_menu_cb: 返回菜单的回调函数
+        :type back_to_menu_cb: Callable
+        :param parent: 父控件
+        :type parent: Optional[QWidget]
+        """
         super().__init__(parent)
         self.back_to_menu_cb = back_to_menu_cb
         self.terms = {}       # 方程项 {key: coeff}
@@ -419,15 +484,20 @@ class InputPage(BasePage):
         self.y_max_input: Optional[QLineEdit] = None
         self.t_min_input: Optional[QLineEdit] = None
         self.t_max_input: Optional[QLineEdit] = None
-
-    # 抽象方法（子类必须实现）
     def init_ui(self):
-        """子类必须重写：创建自己的 UI 布局"""
-        raise NotImplementedError("子类必须实现 init_ui()")
+        """
+        子类必须重写：创建自己的 UI 布局。
 
-    # 公共方法（供子类调用）
+        :raises NotImplementedError: 子类未实现时抛出
+        """
+        raise NotImplementedError("子类必须实现 init_ui()")
     def get_all_possible_terms(self) -> list:
-        """根据问题类型与阶数，返回所有合法的 (key, display_name)"""
+        """
+        根据问题类型与阶数，返回所有合法的 (key, display_name)。
+
+        :return: 可用项列表
+        :rtype: list
+        """
         p_type = self.type_combo.currentText()
         order = self.order_spin.value()
         if "1D 稳态" in p_type:
@@ -463,9 +533,13 @@ class InputPage(BasePage):
                 ("u_y", "u_y (y方向一阶)"),
                 ("u", "u (零阶项)")
             ]
-
     def get_all_possible_slots(self) -> list:
-        """根据问题类型返回合法的定解条件侧边/位置列表"""
+        """
+        根据问题类型返回合法的定解条件侧边/位置列表。
+
+        :return: 可用槽位列表
+        :rtype: list
+        """
         p_type = self.type_combo.currentText()
         if "1D 稳态" in p_type:
             return []
@@ -475,8 +549,8 @@ class InputPage(BasePage):
             return ["left", "right", "bottom", "top"]
         else:
             return ["initial", "left", "right", "bottom", "top"]
-
     def on_type_changed(self):
+        """问题类型切换时的响应：更新阶数控件的启用状态并清空输入。"""
         p_type = self.type_combo.currentText()
         has_y = "2D" in p_type
         has_t = "含时" in p_type
@@ -486,26 +560,26 @@ class InputPage(BasePage):
             self.order_spin.setValue(2)
             self.order_spin.setEnabled(False)
         self.clear_all_inputs()
-
     def on_order_changed(self):
+        """阶数变化时的响应：清空输入。"""
         self.clear_all_inputs()
-
     def clear_all_inputs(self):
+        """清空所有方程项和定解条件。"""
         self.terms.clear()
         self.conditions.clear()
         self.term_list_widget.clear()
         self.cond_list_widget.clear()
         self.update_preview()
-
     def update_preview(self):
+        """更新方程预览显示。"""
         if not self.terms:
             self.eq_preview.set_latex(r"\text{未构建方程}")
             return
         parts = [f"({v}) * {k}" for k, v in self.terms.items()]
         src = self.source_input.text().strip() or "0"
         self.eq_preview.set_latex(" + ".join(parts) + f" = {src}")
-
     def open_add_term_dialog(self):
+        """打开添加方程项的对话框。"""
         all_terms = self.get_all_possible_terms()
         avail_terms = [item for item in all_terms if item[0] not in self.terms]
         if not avail_terms:
@@ -518,8 +592,8 @@ class InputPage(BasePage):
             self.terms[term_key] = coeff
             self.term_list_widget.addItem(f"{term_key}  [系数: {coeff}]")
             self.update_preview()
-
     def delete_selected_term(self):
+        """删除当前选中的方程项。"""
         row = self.term_list_widget.currentRow()
         if row >= 0:
             item_text = self.term_list_widget.item(row).text()
@@ -527,8 +601,8 @@ class InputPage(BasePage):
             self.terms.pop(term_key, None)
             self.term_list_widget.takeItem(row)
             self.update_preview()
-
     def open_add_cond_dialog(self):
+        """打开添加定解条件的对话框。"""
         p_type = self.type_combo.currentText()
         order = self.order_spin.value()
         if "1D 稳态" in p_type:
@@ -566,14 +640,19 @@ class InputPage(BasePage):
                 else:
                     display_str = f"[{cond['side']}] 类型: {cond.get('type', 'initial')} | 值: {cond['value']}"
                 self.cond_list_widget.addItem(display_str)
-
     def delete_selected_cond(self):
+        """删除当前选中的定解条件。"""
         row = self.cond_list_widget.currentRow()
         if row >= 0:
             self.conditions.pop(row)
             self.cond_list_widget.takeItem(row)
-
     def read_domain(self):
+        """
+        从输入框读取定义域。
+
+        :return: 定义域字典，如 {"x": [0, 1], "y": [0, 1], "t": [0, 1]}
+        :rtype: Optional[dict]
+        """
         p_type = self.type_combo.currentText()
         dimension = 1 if "1D" in p_type else 2
         has_t = "含时" in p_type
@@ -611,9 +690,13 @@ class InputPage(BasePage):
                 QMessageBox.warning(self, "错误", "t 范围必须为有效数字！")
                 return None
         return domain
-
     def get_config(self):
-        """构建标准配置字典"""
+        """
+        构建标准配置字典。
+
+        :return: 问题配置字典，包含 dimension, order, has_t, coeffs, source_term, domain, condition
+        :rtype: dict
+        """
         p_type = self.type_combo.currentText()
         order = self.order_spin.value()
         dimension = 1 if "1D" in p_type else 2
@@ -636,8 +719,16 @@ class InputPage(BasePage):
         }
 
 class PreviewLabel(QTextEdit):
-    """基于 QTextEdit 的公式/文本显示控件，支持富文本、滚动、复制。"""
+    """
+    基于 QTextEdit 的公式/文本显示控件，支持富文本、滚动、复制。
+    """
     def __init__(self, parent=None, font_size=9):
+        """
+        :param parent: 父控件
+        :type parent: Optional[QWidget]
+        :param font_size: 字体大小
+        :type font_size: int
+        """
         super().__init__(parent)
         self.setReadOnly(True)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -649,7 +740,12 @@ class PreviewLabel(QTextEdit):
         ThemeManager.instance().theme_changed.connect(lambda _: self._apply_style(self.default_font_size))
         QTimer.singleShot(0, lambda: self._apply_style(self.default_font_size))
     def _apply_style(self, size: int):
-        """应用样式到当前文本"""
+        """
+        应用样式到当前文本。
+
+        :param size: 字体大小
+        :type size: int
+        """
         theme = ThemeManager.instance().current
         input_bg = "rgba(15, 23, 42, 0.55)" if theme.is_dark else "rgba(255, 255, 255, 0.85)"
         self.setStyleSheet(f"""
@@ -665,12 +761,28 @@ class PreviewLabel(QTextEdit):
         if self._current_text:
             self._render_text(self._current_text)
     def _render_text(self, text: str):
+        """
+        将文本转换为 HTML 并渲染。
+
+        :param text: 要渲染的文本
+        :type text: str
+        """
         if not text:
             self.setText("")
             return
         html = self._convert_to_html(text)
         self.setHtml(html)
     def _convert_to_html(self, text: str) -> str:
+        """
+        将 LaTeX 风格的文本转换为 HTML 富文本。
+
+        支持转义、希腊字母替换、分数转换、函数名保留、上下标处理等。
+
+        :param text: 输入文本
+        :type text: str
+        :return: HTML 字符串
+        :rtype: str
+        """
         # 1. 转义
         text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         lines = text.split('\n')
@@ -735,9 +847,20 @@ class PreviewLabel(QTextEdit):
         text = re.sub(r'\s+', ' ', text).strip()
         return f'<span style="font-family: \'Times New Roman\', \'Microsoft YaHei\', sans-serif;">{text}</span>'
     def set_color(self, color_hex: str):
+        """
+        设置文本颜色（触发样式重绘）。
+
+        :param color_hex: 颜色十六进制值
+        :type color_hex: str
+        """
         self._apply_style(self.default_font_size)
     def set_latex(self, text: str):
-        """设置显示文本，实际不做 LaTeX 转换。"""
+        """
+        设置显示文本，实际不做 LaTeX 转换，直接渲染为 HTML。
+
+        :param text: 要显示的文本
+        :type text: str
+        """
         if text is None:
             text = ""
         self._current_text = str(text)
@@ -745,16 +868,22 @@ class PreviewLabel(QTextEdit):
 
 class SolverThread(QThread):
     """
-    基于 function_factory 计算引擎的后台求解线程，
+    基于 function_factory 计算引擎的后台求解线程。
+
     可将前端界面传入的 problem_config 转换为标准参数，并直接调用 solve_pde 顶层接口求解。
     """
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
     def __init__(self, problem_config: dict):
+        """
+        :param problem_config: 问题配置字典
+        :type problem_config: dict
+        """
         super().__init__()
         self.config = problem_config
     def run(self):
+        """执行后台求解任务。"""
         try:
             self.log_signal.emit("正在解析方程配置，准备接入 function_factory 核心引擎...")
             dimension = int(self.config.get('dimension', 1))

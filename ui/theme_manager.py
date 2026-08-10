@@ -1,3 +1,11 @@
+# ui/theme_manager.py
+"""
+主题管理模块。
+
+提供应用的主题配色方案定义、切换和管理功能。
+支持多套预设主题（冰川蓝、深海曜石、薄荷翡翠、幻境紫罗兰），
+主题偏好会自动持久化到配置文件中。
+"""
 from dataclasses import dataclass
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtGui import QColor
@@ -5,6 +13,49 @@ from .app_config import AppConfig
 
 @dataclass
 class ThemePalette:
+    """
+    主题配色方案数据类。
+
+    包含一套完整主题的所有颜色配置，涵盖背景渐变、装饰元素和 UI 控件配色。
+
+    :param name: 主题显示名称
+    :type name: str
+    :param is_dark: 是否为暗色主题
+    :type is_dark: bool
+
+    :param bg_start: 背景渐变起始色
+    :type bg_start: QColor
+    :param bg_mid: 背景渐变中间色
+    :type bg_mid: QColor
+    :param bg_end: 背景渐变结束色
+    :type bg_end: QColor
+
+    :param wave_color: 背景波浪线条颜色
+    :type wave_color: QColor
+    :param node_color: 背景散点节点颜色
+    :type node_color: QColor
+
+    :param card_bg: 卡片/面板背景色
+    :type card_bg: str
+    :param text_primary: 主要文本颜色
+    :type text_primary: str
+    :param text_secondary: 次要文本颜色
+    :type text_secondary: str
+
+    :param btn_bg: 按钮背景色
+    :type btn_bg: str
+    :param btn_hover: 按钮悬停背景色
+    :type btn_hover: str
+    :param btn_border: 按钮边框色
+    :type btn_border: str
+
+    :param btn_hover_bg: 按钮悬停背景色（高亮状态）
+    :type btn_hover_bg: str
+    :param btn_hover_text: 按钮悬停文本色（高亮状态）
+    :type btn_hover_text: str
+    :param btn_hover_border: 按钮悬停边框色（高亮状态）
+    :type btn_hover_border: str
+    """
     name: str
     is_dark: bool
     # 背景渐变三配色
@@ -27,11 +78,21 @@ class ThemePalette:
     btn_hover_border: str
 
 class ThemeManager(QObject):
-    """单例主题管理器：负责主题切换与 QSS 样式生成"""
+    """
+    单例主题管理器：负责主题切换与 QSS 样式生成。
+
+    :signal theme_changed: 主题变更信号，携带新的主题键名
+    """
     theme_changed = pyqtSignal(str)
     _instance = None
     @classmethod
     def instance(cls):
+        """
+        获取 ThemeManager 的单例实例。
+
+        :return: ThemeManager 单例对象
+        :rtype: ThemeManager
+        """
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -115,13 +176,26 @@ class ThemeManager(QObject):
         self._current_theme_key = "sky_blue"
     @property
     def current(self) -> ThemePalette:
+        """
+        获取当前主题的配色方案。
+
+        :return: 当前主题的 ThemePalette 对象
+        :rtype: ThemePalette
+        """
         return self.THEMES[self._current_theme_key]
     def set_theme(self, theme_key: str):
+        """
+        切换当前主题并持久化到配置文件。
+
+        :param theme_key: 主题键名，必须存在于 THEMES 中
+        :type theme_key: str
+        """
         if theme_key in self.THEMES and theme_key != self._current_theme_key:
             self._current_theme_key = theme_key
             AppConfig.instance().set("theme", theme_key)
             self.theme_changed.emit(theme_key)
     def load_from_config(self):
+        """从配置文件加载主题偏好并应用。"""
         theme_key = AppConfig.instance().get_str("theme", "sky_blue")
         if theme_key in self.THEMES and theme_key != self._current_theme_key:
             self._current_theme_key = theme_key

@@ -1,3 +1,10 @@
+# ui/pages/mode_selection_page.py
+"""
+模式选择页面模块。
+
+提供 PINN 求解器的主页入口，包含精确解析解模式和 PINN 神经网络模式两个核心入口按钮，
+以及软件偏好设置和退出功能。
+"""
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QApplication, QToolButton
@@ -6,14 +13,23 @@ from .base_widgets import BasePage
 from .settings_dialog_page import SettingsDialog
 
 class ModeSelectionPage(BasePage):
-    """极简主页：继承 BasePage 统一背景，保持精细调节的字号与排版，支持动态主题与设置"""
+    """
+    极简主页：继承 BasePage 统一背景，保持精细调节的字号与排版，支持动态主题与设置。
+
+    :signal mode_selected: 模式选择信号，携带模式名称字符串 ("exact" 或 "pinn")
+    """
     mode_selected = pyqtSignal(str)
     def __init__(self, parent=None):
+        """
+        :param parent: 父控件
+        :type parent: Optional[QWidget]
+        """
         super().__init__(parent)
         self.init_ui()
         self.update_styles()
         ThemeManager.instance().theme_changed.connect(lambda _: self.update_styles())
     def init_ui(self):
+        """初始化用户界面布局。"""
         self.setObjectName("ModeSelectionPage")
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(15, 15, 15, 10)
@@ -71,10 +87,15 @@ class ModeSelectionPage(BasePage):
         bottom_layout.addWidget(self.exit_btn, alignment=Qt.AlignRight | Qt.AlignBottom)
         main_layout.addLayout(bottom_layout)
     def open_settings(self):
-        """打开设置弹窗"""
+        """打开设置弹窗。"""
         dialog = SettingsDialog(self)
         dialog.exec_()
     def update_styles(self):
+        """
+        更新页面样式，响应主题切换。
+
+        覆盖基类方法，针对主页特有控件进行样式更新。
+        """
         theme = ThemeManager.instance().current
         self.title.setStyleSheet(f"color: {theme.text_primary}; background: transparent;")
         self.version_label.setStyleSheet(f"color: {theme.text_secondary}; font-size: 10px; background: transparent;")
