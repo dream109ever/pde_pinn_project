@@ -16,13 +16,10 @@ PINN Qt 界面集成测试系统（集成 src 算法库管线）
 4. 完整集成后台多线程训练与 src 求解管线。
 """
 
-import sys
 import os
-import numpy as np
+import sys
 import torch
 import matplotlib as mpl
-import os
-import sys
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path: sys.path.insert(0, project_root)
 from src import *
@@ -40,7 +37,7 @@ from PyQt5.QtWidgets import (
     QComboBox, QPushButton, QTextEdit, QLabel, QStackedWidget, QFrame
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QPointF
-from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QFont
+from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath
 
 
 # ===== 2. 淡蓝/冷灰科技风格 QSS 样式表 =====

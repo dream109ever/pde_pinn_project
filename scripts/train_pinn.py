@@ -20,7 +20,6 @@ import os
 import sys
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path: sys.path.insert(0, project_root)
-
 import torch
 import numpy as np
 from src import *
@@ -417,7 +416,6 @@ if __name__ == "__main__":
         verbose=not args.quiet,
     )
     print_separator("训练完成！")
-    # 使用 solve_pde 进行快速验证（如果可用）
     print("\n[可选] 使用 solve_pde 进行快速验证...")
     try:
         result_verify = solve_pde(
